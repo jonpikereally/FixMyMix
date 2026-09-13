@@ -1,5 +1,6 @@
 import { watchState, post, toast, el, ago } from './net.js';
 import { ICONS, glyph, guessIcon } from './icons.js';
+import { createMidi, renderMidiPanel } from './midi.js';
 
 const OLD_AFTER_MS = 30_000;
 
@@ -14,12 +15,72 @@ const ui = {
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
   allowMessages: $('allowMessages'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'),
+  adminMidiPanel: $('adminMidiPanel'),
 };
 
 let state = null;
 let admin = false;
 let view = 'board';
 let draft = null; // editable copy of the roster while on the Setup tab
+
+// MIDI walks a highlight through the pending items in board order.
+let cursorId = null;
+const MIDI_LABELS = {
+  up: { title: 'Previous member', hint: 'Jump to the previous member with something pending' },
+  down: { title: 'Next member', hint: 'Jump to the next member with something pending' },
+  next: { title: 'Next item', hint: 'Highlight the next request or message' },
+  prev: { title: 'Previous item', hint: 'Highlight the previous request or message' },
+  confirm: { title: 'Confirm (Done)', hint: 'Mark the highlighted item done' },
+};
+const midi = createMidi({
+  actions: Object.keys(MIDI_LABELS),
+  storageKey: 'fixmymix.midi.admin',
+  onAction: (action) => midiAction(action),
+  onChange: () => render(),
+});
+
+function boardItems() {
+  const pending = state.requests.filter((r) => r.status === 'pending');
+  const inbox = state.messages.filter((m) => m.status === 'pending' && m.from === 'member');
+  return state.members.flatMap((member) => [
+    ...pending.filter((r) => r.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt).map((r) => ({ id: r.id, memberId: member.id, kind: 'request' })),
+    ...inbox.filter((m) => m.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt).map((m) => ({ id: m.id, memberId: member.id, kind: 'message' })),
+  ]);
+}
+
+function midiAction(action) {
+  if (!admin || !state) return;
+  const items = boardItems();
+  if (!items.length) return;
+  let index = items.findIndex((item) => item.id === cursorId);
+  if (index === -1) index = 0;
+  if (action === 'next') {
+    index = (index + 1) % items.length;
+  } else if (action === 'prev') {
+    index = (index + items.length - 1) % items.length;
+  } else if (action === 'up' || action === 'down') {
+    const memberIds = [...new Set(items.map((item) => item.memberId))];
+    const current = memberIds.indexOf(items[index].memberId);
+    const target = memberIds[(current + (action === 'down' ? 1 : memberIds.length - 1)) % memberIds.length];
+    index = items.findIndex((item) => item.memberId === target);
+  } else if (action === 'confirm') {
+    const item = items[index];
+    const following = items[(index + 1) % items.length];
+    cursorId = following.id === item.id ? null : following.id;
+    act(() => post('/api/admin/resolve', item.kind === 'request' ? { requestId: item.id } : { messageId: item.id }));
+    return;
+  }
+  cursorId = items[index].id;
+  render();
+  document.querySelector('.request.cursor')?.scrollIntoView({ block: 'nearest' });
+}
+
+function applyCursor() {
+  if (!midi.active()) return;
+  const items = boardItems();
+  if (!items.some((item) => item.id === cursorId)) cursorId = items[0]?.id ?? null;
+  if (cursorId) ui.memberCards.querySelector(`[data-id="${cursorId}"]`)?.classList.add('cursor');
+}
 
 async function act(fn, okMessage) {
   try {
@@ -141,6 +202,7 @@ function renderBoard() {
       : [el('li', { class: 'muted', text: 'Nothing cleared yet.' })]),
   );
   renderComposer();
+  applyCursor();
 }
 
 // Age labels tick without a full re-render so buttons keep their tap state.
@@ -299,11 +361,16 @@ function render() {
     return;
   }
   renderBoard();
-  if (view === 'setup' && !draft) {
-    seedDraft();
-    renderRoster();
+  if (view === 'setup') {
+    renderMidiPanel(ui.adminMidiPanel, midi, MIDI_LABELS);
+    if (!draft) {
+      seedDraft();
+      renderRoster();
+    }
   }
 }
+
+if (Object.keys(midi.bindings()).length) midi.connect();
 
 ui.loginForm.addEventListener('submit', (event) => {
   event.preventDefault();

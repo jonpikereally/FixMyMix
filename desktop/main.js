@@ -1,11 +1,12 @@
 // Menu-bar app: runs the LAN server in-process and shows the address and
 // passcode in the tray. No windows; everything happens in the browser.
 
-import { app, Tray, Menu, nativeImage, clipboard, shell } from 'electron';
+import { app, Tray, Menu, nativeImage, clipboard, shell, dialog } from 'electron';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
+import { createCertificate } from '../src/tls.js';
 import { buildMenu } from './menu.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,7 @@ function state() {
     starting,
     error,
     urls: running?.urls ?? [],
+    httpsUrls: running?.httpsUrls ?? [],
     passcode: running?.passcode ?? null,
     port: PORT,
     loginItem: app.getLoginItemSettings().openAtLogin,
@@ -45,7 +47,26 @@ const actions = {
     await stopServer();
     app.exit(0);
   },
+  async setupHttps() {
+    try {
+      await createCertificate(dataDir());
+      await stopServer();
+      await startServer();
+      const urls = running?.httpsUrls ?? [];
+      dialog.showMessageBox({
+        type: 'info',
+        message: urls.length ? 'HTTPS is on.' : 'Certificate created, but https did not start.',
+        detail: urls.length
+          ? `Devices with a MIDI controller open:\n${urls.join('\n')}\n\nThe first time, the browser will warn about the certificate — choose Advanced → Proceed.`
+          : 'Check the log for the reason.',
+      });
+    } catch (e) {
+      dialog.showErrorBox('Could not set up HTTPS', e.message);
+    }
+  },
 };
+
+const dataDir = () => path.join(app.getPath('userData'), 'data');
 
 async function startServer() {
   if (running || starting) return;
@@ -55,7 +76,7 @@ async function startServer() {
   try {
     running = await start({
       port: PORT,
-      dataDir: path.join(app.getPath('userData'), 'data'),
+      dataDir: dataDir(),
       log: (line) => console.log(line),
     });
   } catch (e) {
