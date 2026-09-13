@@ -13,7 +13,7 @@ const APPS = new Set(['fixmymix', 'ableset', 'custom']);
 const STORAGE = 'fixmymix.join';
 const HINTS = {
   fixmymix: "Point the phone's camera at the code and tap the link it shows. If nothing appears, type the address above into the browser.",
-  ableset: 'Scanning opens AbleSet\'s web app on the phone. AbleSet must be running, with its server on; the port is shown in AbleSet\'s window.',
+  ableset: 'Scanning opens AbleSet\'s web app on the phone. AbleSet must be running with its server on, and the phone on the same Wi-Fi.',
   custom: 'A QR code for any address on this network — a mixer\'s web page, a lyrics screen, anything the band needs to open.',
 };
 
@@ -55,10 +55,11 @@ function target() {
   }
   if (app === 'ableset') {
     const host = ablesetHost();
-    const port = Number(ui.ablesetPort.value);
+    const portText = ui.ablesetPort.value.trim();
+    const port = Number(portText);
     if (!host) return { error: 'Type the address of the computer running Ableton.' };
-    if (!(port >= 1 && port <= 65535)) return { error: 'Port must be between 1 and 65535.' };
-    return { url: `http://${host}:${port}` };
+    if (portText && !(port >= 1 && port <= 65535)) return { error: 'Port must be between 1 and 65535, or empty.' };
+    return { url: portText ? `http://${host}:${port}` : `http://${host}` };
   }
   const raw = ui.customUrl.value.trim();
   if (!raw) return { error: 'Type an address to encode.' };
@@ -139,7 +140,7 @@ ui.ablesetHost.addEventListener('change', () => {
 });
 for (const input of [ui.ablesetPort, ui.ablesetCustom, ui.customUrl]) input.addEventListener('input', () => { save(); render(); });
 
-if (prefs.ablesetPort) ui.ablesetPort.value = prefs.ablesetPort;
+if (prefs.ablesetPort !== undefined) ui.ablesetPort.value = prefs.ablesetPort;
 if (prefs.ablesetCustom) ui.ablesetCustom.value = prefs.ablesetCustom;
 if (prefs.customUrl) ui.customUrl.value = prefs.customUrl;
 renderHosts();
