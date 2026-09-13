@@ -5,6 +5,7 @@ export const MAX_MEMBERS = 24;
 export const MAX_CHANNELS = 16;
 export const MAX_HISTORY = 100;
 export const MAX_COUNT = 9;
+export const MAX_MESSAGE_LENGTH = 200;
 
 const DIRECTIONS = new Set(['more', 'less']);
 const DEFAULT_CHANNEL_NAMES = [
@@ -114,6 +115,38 @@ function normalizeRequests(raw, members) {
   return requests;
 }
 
+function pruneDone(list) {
+  const done = list.filter((item) => item.status === 'done');
+  if (done.length <= MAX_HISTORY) return list;
+  const keep = new Set(done.sort((a, b) => b.resolvedAt - a.resolvedAt).slice(0, MAX_HISTORY).map((item) => item.id));
+  return list.filter((item) => item.status === 'pending' || keep.has(item.id));
+}
+
+function normalizeMessages(raw, members) {
+  const index = new Map(members.map((m) => [m.id, m]));
+  const list = Array.isArray(raw) ? raw : [];
+  const messages = [];
+  for (const entry of list) {
+    const status = entry?.status === 'done' ? 'done' : 'pending';
+    const memberId = text(entry?.memberId, '', 32);
+    if (status === 'pending' && !index.has(memberId)) continue;
+    const body = text(entry?.text, '', MAX_MESSAGE_LENGTH);
+    if (!body) continue;
+    const createdAt = clamp(entry?.createdAt, 0, Number.MAX_SAFE_INTEGER, Date.now());
+    messages.push({
+      id: text(entry?.id, '', 32) || newId(),
+      from: entry?.from === 'admin' ? 'admin' : 'member',
+      memberId,
+      memberName: text(entry?.memberName, index.get(memberId)?.name ?? 'Unknown'),
+      text: body,
+      status,
+      createdAt,
+      resolvedAt: status === 'done' ? clamp(entry?.resolvedAt, 0, Number.MAX_SAFE_INTEGER, createdAt) : null,
+    });
+  }
+  return messages;
+}
+
 /**
  * In-memory show state. Every mutation bumps `rev` and notifies subscribers
  * with a fresh snapshot, which is what the server pushes down the SSE stream.
@@ -123,9 +156,10 @@ export class Store {
 
   constructor(initial = {}) {
     this.rev = clamp(initial.rev, 1, Number.MAX_SAFE_INTEGER, 1);
-    this.show = { name: text(initial.show?.name, 'FixMyMix', 60) };
+    this.show = { name: text(initial.show?.name, 'FixMyMix', 60), messaging: initial.show?.messaging === true };
     this.members = normalizeMembers(initial.members);
     this.requests = normalizeRequests(initial.requests, this.members);
+    this.messages = normalizeMessages(initial.messages, this.members);
   }
 
   subscribe(listener) {
@@ -144,11 +178,16 @@ export class Store {
         channels: m.channels.map((c) => ({ ...c })),
       })),
       requests: this.requests.map((r) => ({ ...r })),
+      messages: this.messages.map((m) => ({ ...m })),
     };
   }
 
   pending() {
     return this.requests.filter((r) => r.status === 'pending');
+  }
+
+  pendingMessages() {
+    return this.messages.filter((m) => m.status === 'pending');
   }
 
   #commit() {
@@ -165,16 +204,17 @@ export class Store {
   }
 
   #prune() {
-    const done = this.requests.filter((r) => r.status === 'done');
-    if (done.length <= MAX_HISTORY) return;
-    const keep = new Set(
-      done.sort((a, b) => b.resolvedAt - a.resolvedAt).slice(0, MAX_HISTORY).map((r) => r.id),
-    );
-    this.requests = this.requests.filter((r) => r.status === 'pending' || keep.has(r.id));
+    this.requests = pruneDone(this.requests);
+    this.messages = pruneDone(this.messages);
   }
 
   setShowName(name) {
-    this.show.name = text(name, 'FixMyMix', 60);
+    return this.setShow({ name });
+  }
+
+  setShow({ name, messaging } = {}) {
+    if (name !== undefined) this.show.name = text(name, 'FixMyMix', 60);
+    if (messaging !== undefined) this.show.messaging = messaging === true;
     return this.#commit();
   }
 
@@ -193,6 +233,13 @@ export class Store {
       request.memberName = member.name;
       request.channelName = channel.name;
       request.channelIcon = channel.icon;
+      return true;
+    });
+    this.messages = this.messages.filter((message) => {
+      if (message.status === 'done') return true;
+      const member = index.get(message.memberId);
+      if (!member) return false;
+      message.memberName = member.name;
       return true;
     });
     return this.#commit();
@@ -290,6 +337,12 @@ export class Store {
       request.resolvedAt = now;
       resolved.push({ ...request });
     }
+    for (const message of this.messages) {
+      if (message.status !== 'pending' || message.from !== 'member' || !match(message)) continue;
+      message.status = 'done';
+      message.resolvedAt = now;
+      resolved.push({ ...message });
+    }
     if (resolved.length) {
       this.#prune();
       this.#commit();
@@ -297,10 +350,74 @@ export class Store {
     return resolved;
   }
 
+  #newMessage(from, member, body) {
+    const now = Date.now();
+    const message = {
+      id: newId(),
+      from,
+      memberId: member.id,
+      memberName: member.name,
+      text: body,
+      status: 'pending',
+      createdAt: now,
+      resolvedAt: null,
+    };
+    this.messages.push(message);
+    return message;
+  }
+
+  #messageText(value) {
+    const body = text(value, '', MAX_MESSAGE_LENGTH);
+    if (!body) throw new StoreError('empty_message', 'Type a message first.');
+    return body;
+  }
+
+  /** A performer writes to the desk. Off unless the admin has enabled messaging. */
+  sendMemberMessage({ memberId, text: value }) {
+    if (!this.show.messaging) throw new StoreError('messaging_off', 'Messages are switched off for this show.');
+    const member = this.#member(memberId);
+    const message = this.#newMessage('member', member, this.#messageText(value));
+    this.#commit();
+    return { ...message };
+  }
+
+  /** The desk writes to one performer, or to everyone (one message each). */
+  sendAdminMessage({ memberId, all = false, text: value }) {
+    if (!this.show.messaging) throw new StoreError('messaging_off', 'Messages are switched off for this show.');
+    const body = this.#messageText(value);
+    const targets = all ? this.members : [this.#member(memberId)];
+    const sent = targets.map((member) => ({ ...this.#newMessage('admin', member, body) }));
+    if (sent.length) this.#commit();
+    return sent;
+  }
+
+  /** Admin has read a performer's message. */
+  resolveMessage(messageId) {
+    const message = this.messages.find((m) => m.id === messageId && m.status === 'pending' && m.from === 'member');
+    if (!message) throw new StoreError('unknown_message', 'That message has already been handled.');
+    message.status = 'done';
+    message.resolvedAt = Date.now();
+    this.#prune();
+    this.#commit();
+    return { ...message };
+  }
+
+  /** A performer has read the desk's message. */
+  ackMessage({ memberId, messageId }) {
+    const message = this.messages.find((m) => m.id === messageId && m.status === 'pending' && m.from === 'admin' && m.memberId === memberId);
+    if (!message) throw new StoreError('unknown_message', 'That message has already been handled.');
+    message.status = 'done';
+    message.resolvedAt = Date.now();
+    this.#prune();
+    this.#commit();
+    return { ...message };
+  }
+
   clearHistory() {
-    const before = this.requests.length;
+    const before = this.requests.length + this.messages.length;
     this.requests = this.requests.filter((r) => r.status === 'pending');
-    if (this.requests.length !== before) this.#commit();
+    this.messages = this.messages.filter((m) => m.status === 'pending');
+    if (this.requests.length + this.messages.length !== before) this.#commit();
     return this.snapshot();
   }
 }

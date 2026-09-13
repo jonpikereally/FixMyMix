@@ -160,3 +160,60 @@ test('icons are guessed for defaults, validated on load and carried into request
   assert.equal(restored.members[0].icon, 'drums');
   assert.equal(restored.requests[0].channelIcon, 'drums');
 });
+
+test('messaging is off by default and gated by the show setting', () => {
+  const { store, alex } = setup();
+  assert.equal(store.show.messaging, false);
+  assert.throws(() => store.sendMemberMessage({ memberId: alex.id, text: 'hi' }), (e) => e.code === 'messaging_off');
+  assert.throws(() => store.sendAdminMessage({ memberId: alex.id, text: 'hi' }), (e) => e.code === 'messaging_off');
+  store.setShow({ messaging: true });
+  assert.throws(() => store.sendMemberMessage({ memberId: alex.id, text: '   ' }), (e) => e.code === 'empty_message');
+  const sent = store.sendMemberMessage({ memberId: alex.id, text: '  more reverb  pls ' });
+  assert.equal(sent.text, 'more reverb pls');
+  assert.equal(sent.from, 'member');
+  assert.equal(sent.memberName, 'Member 1');
+});
+
+test('member → desk messages are resolved by the admin, also via member/all resolves', () => {
+  const { store, alex, sam } = setup();
+  store.setShow({ messaging: true });
+  const a = store.sendMemberMessage({ memberId: alex.id, text: 'a' });
+  store.sendMemberMessage({ memberId: sam.id, text: 'b' });
+  assert.equal(store.resolveMessage(a.id).status, 'done');
+  assert.throws(() => store.resolveMessage(a.id), StoreError);
+  assert.equal(store.pendingMessages().length, 1);
+  const resolved = store.resolveMember(sam.id);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].text, 'b');
+  assert.equal(store.pendingMessages().length, 0);
+});
+
+test('desk → member messages need the member to ack; broadcast sends one each', () => {
+  const { store, alex, sam } = setup();
+  store.setShow({ messaging: true });
+  const sent = store.sendAdminMessage({ all: true, text: 'Break after this one' });
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent.map((m) => m.memberId).sort(), [alex.id, sam.id].sort());
+  // resolveAll (admin) does not clear the desk's own messages; only the performer's ack does
+  store.resolveAll();
+  assert.equal(store.pendingMessages().length, 2);
+  assert.throws(() => store.resolveMessage(sent[0].id), StoreError);
+  assert.throws(() => store.ackMessage({ memberId: sam.id, messageId: sent[0].id }), StoreError);
+  const acked = store.ackMessage({ memberId: sent[0].memberId, messageId: sent[0].id });
+  assert.equal(acked.status, 'done');
+  assert.equal(store.pendingMessages().length, 1);
+});
+
+test('messages survive a round trip and roster edits drop orphans', () => {
+  const { store, alex, sam } = setup();
+  store.setShow({ messaging: true });
+  store.sendMemberMessage({ memberId: alex.id, text: 'keep' });
+  store.sendMemberMessage({ memberId: sam.id, text: 'drop' });
+  store.setRoster([{ id: alex.id, name: 'Alex', channels: alex.channels }]);
+  assert.deepEqual(store.pendingMessages().map((m) => [m.text, m.memberName]), [['keep', 'Alex']]);
+  const restored = new Store(JSON.parse(JSON.stringify(store.snapshot())));
+  assert.equal(restored.show.messaging, true);
+  assert.equal(restored.messages.length, 1);
+  restored.clearHistory();
+  assert.equal(restored.messages.length, 1);
+});
