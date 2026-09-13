@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FixMyMix · Stage</title>
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <main class="wrap narrow">
+    <div class="topbar">
+      <div class="grow">
+        <h1 id="title">FixMyMix</h1>
+        <p class="muted small sub"><span id="status" class="status-dot"></span><span id="who">Connecting…</span></p>
+      </div>
+      <button id="switch" class="ghost hidden" type="button">Not me</button>
+      <button id="settingsBtn" class="ghost icon-btn" type="button" aria-label="Settings" aria-expanded="false">⚙</button>
+    </div>
+
+    <section id="settings" class="card hidden">
+      <h2>Settings</h2>
+      <label class="setting">
+        <input id="autoDismiss" type="checkbox" checked>
+        <span>
+          <strong>Auto-dismiss confirmations</strong>
+          <span class="muted small">On: the green “Done ✓” fades after 8 seconds. Off: it stays until you tap it.</span>
+        </span>
+      </label>
+      <fieldset class="setting-group">
+        <legend>Layout</legend>
+        <label class="setting">
+          <input type="radio" name="layout" value="rows" checked>
+          <span><strong>Rows</strong><span class="muted small">One line per channel with − and + buttons.</span></span>
+        </label>
+        <label class="setting">
+          <input type="radio" name="layout" value="boxes">
+          <span><strong>Boxes</strong><span class="muted small">A box per channel: tap the top for more, the bottom for less.</span></span>
+        </label>
+      </fieldset>
+      <fieldset class="setting-group">
+        <legend>MIDI controller</legend>
+        <p class="muted small">Next/previous move the highlight, up/down arm more or less, confirm sends it. With nothing armed, confirm answers a desk message or clears a green confirmation.</p>
+        <div id="midiPanel"></div>
+      </fieldset>
+      <p class="muted small">Settings are saved on this device only.</p>
+    </section>
+
+    <div id="offline" class="banner hidden">No connection to the mix desk. Requests will send once you're back on the show Wi-Fi.</div>
+
+    <section id="picker" class="hidden">
+      <h2 class="mb-md">Who are you?</h2>
+      <div id="members" class="member-list"></div>
+      <p class="muted small">Your choice is remembered on this device.</p>
+    </section>
+
+    <section id="mix" class="hidden">
+      <div id="deskMessages"></div>
+      <div id="channels"></div>
+      <p id="hint" class="muted small"></p>
+      <div id="myMessages"></div>
+    </section>
+  </main>
+  <form id="composer" class="composer hidden">
+    <div class="inner">
+      <input id="messageText" type="text" maxlength="200" placeholder="Message the desk…" autocomplete="off" aria-label="Message the desk">
+      <button class="primary" type="submit">Send</button>
+    </div>
+  </form>
+  <script type="module" src="/js/stage.js"></script>
+</body>
+</html>

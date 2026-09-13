@@ -1,0 +1,25 @@
+{
+  "name": "fixmymix",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-stage monitor mix request system. Runs on a local network, no internet required.",
+  "type": "module",
+  "main": "desktop/main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js",
+    "app": "electron .",
+    "app:package": "electron-packager . FixMyMix --platform=darwin --out=\"${FIXMYMIX_APP_OUT:-desktop/dist}\" --overwrite --icon=desktop/icon --app-bundle-id=com.rehearsaltool.fixmymix --app-category-type=public.app-category.music --extend-info=desktop/Info.plist --prune=true --ignore='^/(test|data|desktop/dist|\\.github|\\.claude)($|/)'",
+    "icons": "node desktop/scripts/icons.mjs",
+    "cert": "node scripts/cert.mjs"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "electron": "^44.3.0"
+  }
+}
