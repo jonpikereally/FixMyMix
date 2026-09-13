@@ -60,6 +60,13 @@
           <input id="showName" type="text" maxlength="60" class="grow-input">
           <button id="saveShow" class="primary" type="button">Save</button>
         </div>
+        <label class="setting mt">
+          <input id="allowMessages" type="checkbox">
+          <span>
+            <strong>Allow messages</strong>
+            <span class="muted small">Performers get a text field to message the desk, and you can message one of them or everyone from the board. Applies immediately.</span>
+          </span>
+        </label>
       </div>
 
       <div class="card">
@@ -101,6 +108,13 @@
       </div>
     </section>
   </main>
+  <form id="adminComposer" class="composer hidden">
+    <div class="inner">
+      <select id="messageTo" aria-label="Send to"></select>
+      <input id="adminMessageText" type="text" maxlength="200" placeholder="Message…" autocomplete="off" aria-label="Message">
+      <button class="primary" type="submit">Send</button>
+    </div>
+  </form>
   <script type="module" src="/js/admin.js"></script>
 </body>
 </html>

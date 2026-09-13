@@ -53,10 +53,18 @@
     </section>
 
     <section id="mix" class="hidden">
+      <div id="deskMessages"></div>
       <div id="channels"></div>
       <p id="hint" class="muted small"></p>
+      <div id="myMessages"></div>
     </section>
   </main>
+  <form id="composer" class="composer hidden">
+    <div class="inner">
+      <input id="messageText" type="text" maxlength="200" placeholder="Message the desk…" autocomplete="off" aria-label="Message the desk">
+      <button class="primary" type="submit">Send</button>
+    </div>
+  </form>
   <script type="module" src="/js/stage.js"></script>
 </body>
 </html>

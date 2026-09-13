@@ -145,3 +145,29 @@ test('throttle window slides', () => {
   t = 1001;
   assert.equal(throttle('a'), true);
 });
+
+test('messaging routes: setting toggle, member send, admin send, ack and resolve', async () => {
+  const { store, call } = setup();
+  const [alex, sam] = store.members;
+  await assert.rejects(call('POST', '/messages', { body: { memberId: alex.id, text: 'hi' } }), (e) => e.status === 409 && e.code === 'messaging_off');
+  const cookies = await login(call);
+  const show = await call('POST', '/admin/show', { body: { messaging: true }, cookies });
+  assert.equal(show.json.show.messaging, true);
+  assert.equal(show.json.show.name, 'FixMyMix');
+
+  const fromMember = await call('POST', '/messages', { body: { memberId: alex.id, text: 'more reverb' } });
+  assert.equal(fromMember.json.message.from, 'member');
+  const done = await call('POST', '/admin/resolve', { body: { messageId: fromMember.json.message.id }, cookies });
+  assert.equal(done.json.resolved[0].status, 'done');
+
+  await assert.rejects(call('POST', '/admin/messages', { body: { all: true, text: 'x' } }), (e) => e.status === 401);
+  const broadcast = await call('POST', '/admin/messages', { body: { all: true, text: 'Break after this' }, cookies });
+  assert.equal(broadcast.json.sent.length, 2);
+  const mine = broadcast.json.sent.find((m) => m.memberId === sam.id);
+  await assert.rejects(call('POST', '/messages/ack', { body: { memberId: alex.id, messageId: mine.id } }), (e) => e.status === 409);
+  const ack = await call('POST', '/messages/ack', { body: { memberId: sam.id, messageId: mine.id } });
+  assert.equal(ack.json.message.status, 'done');
+
+  for (let i = 0; i < 4; i++) await call('POST', '/messages', { body: { memberId: alex.id, text: `m${i}` } }); // 6 per 10 s, incl. the two attempts above
+  await assert.rejects(call('POST', '/messages', { body: { memberId: alex.id, text: 'too many' } }), (e) => e.status === 429);
+});

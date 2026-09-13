@@ -397,3 +397,45 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .icon-menu button .glyph { font-size: 1.2rem; width: 1.5em; text-align: center; }
 .icon-menu button:hover, .icon-menu button:focus { background: var(--bg); outline: none; }
 .icon-menu button.selected { background: #1c2b45; }
+
+/* Messages */
+.msg {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 12px 12px 14px;
+  margin-bottom: 12px;
+}
+.msg .msg-text { flex: 1; font-size: 1.05rem; word-break: break-word; }
+.msg .msg-from { display: block; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.msg.desk { background: #141c2e; }
+.msg.desk .done-btn { min-height: 48px; }
+.msg.mine.pending { border-left-color: var(--pending); background: #221d10; }
+.msg.mine.pending .state { color: var(--pending); font-weight: 600; }
+.msg.mine.done { border-left-color: var(--done); background: #12301d; cursor: pointer; animation: pop 400ms ease; }
+.msg.mine.done .state { color: var(--done); font-weight: 700; }
+
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  margin: 0;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.composer .inner { max-width: 1100px; margin: 0 auto; display: flex; gap: 8px; }
+.composer input { flex: 1; min-width: 0; }
+.composer select { min-height: 48px; max-width: 38%; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); padding: 0 10px; }
+body.has-composer { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+
+.request.message .arrow.chat { background: #1c2b45; color: var(--accent); font-size: 1.3rem; }
+.request .label.quote { font-weight: 600; font-style: italic; }
+.outgoing { padding: 6px 4px; font-size: 0.9rem; border-top: 1px dashed var(--line); margin-top: 4px; }
+.outgoing .quote { font-style: italic; }

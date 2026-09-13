@@ -13,6 +13,7 @@ const ui = {
   memberCount: $('memberCount'), channelCount: $('channelCount'), quickSetup: $('quickSetup'),
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
+  allowMessages: $('allowMessages'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'),
 };
 
 let state = null;
@@ -52,41 +53,94 @@ function requestRow(request) {
   ]);
 }
 
+function messageRow(message) {
+  const meta = el('div', { class: 'meta', 'data-created': message.createdAt, text: `${ago(message.createdAt)} ago` });
+  return el('div', { class: 'request message', 'data-id': message.id }, [
+    el('div', { class: 'arrow chat', text: '💬' }),
+    el('div', {}, [el('div', { class: 'label quote', text: message.text }), meta]),
+    el('button', {
+      type: 'button', class: 'done-btn', text: 'Done',
+      onclick: () => act(() => post('/api/admin/resolve', { messageId: message.id })),
+    }),
+  ]);
+}
+
+function outgoingRow(message) {
+  return el('div', { class: 'outgoing' }, [
+    el('span', { class: 'muted', text: 'You: ' }),
+    el('span', { class: 'quote', text: message.text }),
+    el('span', { class: 'muted small', text: ' — waiting for a Got it' }),
+  ]);
+}
+
+let composerKey = '';
+function renderComposer() {
+  const show = admin && view === 'board' && Boolean(state.show.messaging);
+  ui.adminComposer.classList.toggle('hidden', !show);
+  document.body.classList.toggle('has-composer', show);
+  if (!show) return;
+  const key = state.members.map((m) => `${m.id}:${m.name}`).join('|');
+  if (key === composerKey) return;
+  composerKey = key;
+  const current = ui.messageTo.value;
+  ui.messageTo.replaceChildren(
+    el('option', { value: 'all', text: 'Everyone' }),
+    ...state.members.map((m) => el('option', { value: m.id, text: m.name })),
+  );
+  if ([...ui.messageTo.options].some((o) => o.value === current)) ui.messageTo.value = current;
+}
+
 function renderBoard() {
   const pending = state.requests.filter((r) => r.status === 'pending');
-  ui.pendingPill.textContent = String(pending.length);
-  ui.pendingPill.classList.toggle('hot', pending.length > 0);
-  ui.resolveAll.disabled = pending.length === 0;
+  const inbox = state.messages.filter((m) => m.status === 'pending' && m.from === 'member');
+  const outgoing = state.messages.filter((m) => m.status === 'pending' && m.from === 'admin');
+  const open = pending.length + inbox.length;
+  ui.pendingPill.textContent = String(open);
+  ui.pendingPill.classList.toggle('hot', open > 0);
+  ui.resolveAll.disabled = open === 0;
 
   ui.memberCards.replaceChildren(
     ...state.members.map((member) => {
       const mine = pending.filter((r) => r.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt);
+      const myInbox = inbox.filter((m) => m.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt);
+      const myOutgoing = outgoing.filter((m) => m.memberId === member.id);
+      const count = mine.length + myInbox.length;
       const header = el('header', {}, [
         el('h3', { text: `${glyph(member.icon) ? `${glyph(member.icon)} ` : ''}${member.name}` }),
-        mine.length > 1
+        count > 1
           ? el('button', { type: 'button', class: 'ghost compact', text: 'All done', onclick: () => act(() => post('/api/admin/resolve', { memberId: member.id })) })
-          : el('span', { class: `pill${mine.length ? ' hot' : ''}`, text: String(mine.length) }),
+          : el('span', { class: `pill${count ? ' hot' : ''}`, text: String(count) }),
       ]);
-      return el('div', { class: `card member-card${mine.length ? ' hot' : ''}` }, [
+      return el('div', { class: `card member-card${count ? ' hot' : ''}` }, [
         header,
-        ...(mine.length ? mine.map(requestRow) : [el('div', { class: 'idle small', text: 'Happy for now' })]),
+        ...mine.map(requestRow),
+        ...myInbox.map(messageRow),
+        ...myOutgoing.map(outgoingRow),
+        ...(count || myOutgoing.length ? [] : [el('div', { class: 'idle small', text: 'Happy for now' })]),
       ]);
     }),
   );
 
-  const done = state.requests
+  const done = [...state.requests, ...state.messages]
     .filter((r) => r.status === 'done')
     .sort((a, b) => b.resolvedAt - a.resolvedAt)
     .slice(0, 12);
   ui.clearHistory.disabled = done.length === 0;
+  const logLine = (item) => {
+    if (item.text === undefined) {
+      return `${item.memberName} · ${glyph(item.channelIcon) ? `${glyph(item.channelIcon)} ` : ''}${item.channelName} ${item.direction === 'more' ? '▲' : '▼'}${item.count > 1 ? ` ×${item.count}` : ''}`;
+    }
+    return item.from === 'admin' ? `${item.memberName} ✓ read “${item.text}”` : `${item.memberName} · 💬 “${item.text}”`;
+  };
   ui.log.replaceChildren(
     ...(done.length
       ? done.map((r) => el('li', {}, [
-          el('span', { text: `${r.memberName} · ${glyph(r.channelIcon) ? `${glyph(r.channelIcon)} ` : ''}${r.channelName} ${r.direction === 'more' ? '▲' : '▼'}${r.count > 1 ? ` ×${r.count}` : ''}` }),
+          el('span', { text: logLine(r) }),
           el('span', { class: 'muted', text: new Date(r.resolvedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }),
         ]))
       : [el('li', { class: 'muted', text: 'Nothing cleared yet.' })]),
   );
+  renderComposer();
 }
 
 // Age labels tick without a full re-render so buttons keep their tap state.
@@ -237,8 +291,11 @@ function render() {
   ui.tabSetup.className = view === 'setup' ? 'primary' : 'ghost';
   ui.subtitle.textContent = admin ? (view === 'board' ? 'Mix board' : 'Setup') : 'Locked';
 
+  ui.allowMessages.checked = Boolean(state.show.messaging);
   if (!admin) {
     ui.passcode.focus();
+    ui.adminComposer.classList.add('hidden');
+    document.body.classList.remove('has-composer');
     return;
   }
   renderBoard();
@@ -272,6 +329,18 @@ ui.tabBoard.addEventListener('click', closeIconMenu);
 ui.resolveAll.addEventListener('click', () => act(() => post('/api/admin/resolve', { all: true })));
 ui.clearHistory.addEventListener('click', () => act(() => post('/api/admin/history/clear')));
 ui.saveShow.addEventListener('click', () => act(() => post('/api/admin/show', { name: ui.showName.value }), 'Show name saved'));
+ui.allowMessages.addEventListener('change', () => act(() => post('/api/admin/show', { messaging: ui.allowMessages.checked }), ui.allowMessages.checked ? 'Messages on' : 'Messages off'));
+
+ui.adminComposer.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const text = ui.adminMessageText.value.trim();
+  if (!text) return;
+  const to = ui.messageTo.value;
+  act(async () => {
+    await post('/api/admin/messages', to === 'all' ? { all: true, text } : { memberId: to, text });
+    ui.adminMessageText.value = '';
+  }, to === 'all' ? 'Sent to everyone' : 'Sent');
+});
 
 ui.quickSetup.addEventListener('click', () => {
   const memberCount = Number(ui.memberCount.value);

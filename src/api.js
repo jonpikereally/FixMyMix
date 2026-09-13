@@ -94,6 +94,7 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
 export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies = false }) {
   const hub = createHub(store);
   const requestThrottle = createThrottle(12, 3000);
+  const messageThrottle = createThrottle(6, 10_000);
   const loginThrottle = createThrottle(8, 60_000);
   const cookieAttrs = `Path=/; HttpOnly; SameSite=Strict${secureCookies ? '; Secure' : ''}`;
   const ok = (json, headers = {}) => ({ status: 200, json, headers });
@@ -141,12 +142,31 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
       return ok({ request });
     },
 
+    'POST /messages': async (req) => {
+      const body = await req.json();
+      const memberId = String(body.memberId ?? '');
+      if (!messageThrottle(memberId)) throw new ApiError(429, 'Slow down — give the desk a moment.', 'throttled');
+      return ok({ message: store.sendMemberMessage({ memberId, text: String(body.text ?? '') }) });
+    },
+
+    'POST /messages/ack': async (req) => {
+      const body = await req.json();
+      return ok({ message: store.ackMessage({ memberId: String(body.memberId ?? ''), messageId: String(body.messageId ?? '') }) });
+    },
+
+    'POST /admin/messages': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      return ok({ sent: store.sendAdminMessage({ memberId: String(body.memberId ?? ''), all: body.all === true, text: String(body.text ?? '') }) });
+    },
+
     'POST /admin/resolve': async (req) => {
       await requireAdmin(req);
       const body = await req.json();
       if (body.all === true) return ok({ resolved: store.resolveAll() });
       if (body.memberId) return ok({ resolved: store.resolveMember(String(body.memberId)) });
       if (body.requestId) return ok({ resolved: [store.resolveRequest(String(body.requestId))] });
+      if (body.messageId) return ok({ resolved: [store.resolveMessage(String(body.messageId))] });
       throw new ApiError(400, 'Nothing to resolve.');
     },
 
@@ -167,7 +187,10 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
     'POST /admin/show': async (req) => {
       await requireAdmin(req);
       const body = await req.json();
-      return ok(store.setShowName(body.name));
+      return ok(store.setShow({
+        name: body.name === undefined ? undefined : String(body.name),
+        messaging: body.messaging === undefined ? undefined : body.messaging === true,
+      }));
     },
 
     'POST /admin/history/clear': async (req) => {

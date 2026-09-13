@@ -24,6 +24,10 @@ const ui = {
   mix: document.getElementById('mix'),
   channels: document.getElementById('channels'),
   hint: document.getElementById('hint'),
+  deskMessages: document.getElementById('deskMessages'),
+  myMessages: document.getElementById('myMessages'),
+  composer: document.getElementById('composer'),
+  messageText: document.getElementById('messageText'),
 };
 
 let state = null;
@@ -36,6 +40,13 @@ const knownPending = new Set();
 // channelId -> { until, request } for the green "done" state. `until` is
 // Infinity when confirmations stay until tapped.
 const confirmations = new Map();
+// The same idea for messages I sent: messageId -> { until }.
+const knownPendingMessages = new Set();
+const messageConfirmations = new Map();
+// Desk messages already buzzed for, so a re-render doesn't buzz again.
+const seenDeskMessages = new Set();
+
+const confirmUntil = () => (settings.autoDismiss ? Date.now() + CONFIRM_MS : Infinity);
 
 function readStored(key, fallback) {
   try {
@@ -74,7 +85,7 @@ function trackConfirmations(member) {
       knownPending.add(request.id);
     } else if (knownPending.has(request.id)) {
       knownPending.delete(request.id);
-      confirmations.set(request.channelId, { until: settings.autoDismiss ? now + CONFIRM_MS : Infinity, request });
+      confirmations.set(request.channelId, { until: confirmUntil(), request });
       if (!vibrated) {
         vibrate([120, 60, 120]);
         vibrated = true;
@@ -89,6 +100,70 @@ function trackConfirmations(member) {
 function dismiss(channelId) {
   if (!confirmations.delete(channelId)) return;
   render();
+}
+
+function dismissMessage(messageId) {
+  if (!messageConfirmations.delete(messageId)) return;
+  render();
+}
+
+function messageCard(kind, from, body, trailing) {
+  return el('div', { class: `msg ${kind}` }, [
+    el('div', { class: 'msg-text' }, [el('span', { class: 'msg-from', text: from }), body]),
+    trailing,
+  ]);
+}
+
+function renderMessages(member) {
+  const mine = state.messages.filter((m) => m.memberId === member.id);
+  const now = Date.now();
+
+  // Desk → me: needs a "Got it".
+  const fromDesk = mine.filter((m) => m.from === 'admin' && m.status === 'pending');
+  let buzz = false;
+  for (const m of fromDesk) {
+    if (!seenDeskMessages.has(m.id)) {
+      seenDeskMessages.add(m.id);
+      buzz = true;
+    }
+  }
+  if (buzz) vibrate([200, 80, 200]);
+  ui.deskMessages.replaceChildren(
+    ...fromDesk.map((m) => messageCard('desk', 'From the desk', m.text,
+      el('button', { type: 'button', class: 'done-btn', text: 'Got it', onclick: () => act(() => post('/api/messages/ack', { memberId: member.id, messageId: m.id })) }))),
+  );
+
+  // Me → desk: Sent, then Seen ✓ once the desk clears it.
+  let vibrated = false;
+  for (const m of mine) {
+    if (m.from !== 'member') continue;
+    if (m.status === 'pending') {
+      knownPendingMessages.add(m.id);
+    } else if (knownPendingMessages.has(m.id)) {
+      knownPendingMessages.delete(m.id);
+      messageConfirmations.set(m.id, { until: confirmUntil() });
+      if (!vibrated) {
+        vibrate([120, 60, 120]);
+        vibrated = true;
+      }
+    }
+  }
+  const live = new Set(mine.map((m) => m.id));
+  for (const id of knownPendingMessages) if (!live.has(id)) knownPendingMessages.delete(id);
+
+  const outgoing = mine.filter((m) => m.from === 'member' && (m.status === 'pending' || messageConfirmations.get(m.id)?.until > now));
+  ui.myMessages.replaceChildren(
+    ...outgoing.map((m) => {
+      const seen = m.status === 'done';
+      const stateLine = el('div', { class: 'state' }, seen ? ['Seen ✓'] : ['Sent']);
+      if (seen && !settings.autoDismiss) {
+        stateLine.append(el('button', { type: 'button', class: 'cancel ok', text: 'OK', onclick: (e) => { e.stopPropagation(); dismissMessage(m.id); } }));
+      }
+      const card = messageCard(`mine ${seen ? 'done' : 'pending'}`, 'You', m.text, stateLine);
+      if (seen) card.addEventListener('click', () => dismissMessage(m.id));
+      return card;
+    }),
+  );
 }
 
 function renderPicker() {
@@ -203,10 +278,16 @@ function render() {
   if (!member) {
     if (memberId) saveMember(null);
     renderPicker();
+    ui.composer.classList.add('hidden');
+    document.body.classList.remove('has-composer');
     return;
   }
   trackConfirmations(member);
   renderChannels(member);
+  renderMessages(member);
+  const composer = Boolean(state.show.messaging);
+  ui.composer.classList.toggle('hidden', !composer);
+  document.body.classList.toggle('has-composer', composer);
 }
 
 ui.switchBtn.addEventListener('click', () => {
@@ -225,10 +306,21 @@ ui.autoDismiss.addEventListener('change', () => {
   writeStored(SETTINGS_KEY, settings);
   // Apply to anything already on screen so the toggle is felt immediately.
   const now = Date.now();
-  for (const entry of confirmations.values()) {
+  for (const entry of [...confirmations.values(), ...messageConfirmations.values()]) {
     entry.until = settings.autoDismiss ? Math.min(entry.until, now + CONFIRM_MS) : Infinity;
   }
   render();
+});
+
+ui.composer.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const member = currentMember();
+  const text = ui.messageText.value.trim();
+  if (!member || !text) return;
+  act(async () => {
+    await post('/api/messages', { memberId: member.id, text });
+    ui.messageText.value = '';
+  });
 });
 
 for (const input of ui.layoutInputs) {
@@ -255,10 +347,12 @@ watchState({
 setInterval(() => {
   const now = Date.now();
   let changed = false;
-  for (const [channelId, entry] of confirmations) {
-    if (entry.until <= now) {
-      confirmations.delete(channelId);
-      changed = true;
+  for (const map of [confirmations, messageConfirmations]) {
+    for (const [key, entry] of map) {
+      if (entry.until <= now) {
+        map.delete(key);
+        changed = true;
+      }
     }
   }
   if (changed) render();
