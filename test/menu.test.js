@@ -16,14 +16,15 @@ test('running menu shows addresses, passcode and open/stop actions', () => {
   const items = buildMenu({ running: true, starting: false, error: null, urls: ['http://10.0.0.5:8080'], httpsUrls: [], passcode: '482913', port: 8080, loginItem: false }, actions);
   assert.deepEqual(labels(items), [
     'FixMyMix is running', '---', 'Performers open (click to copy):', 'http://10.0.0.5:8080', 'Admin passcode: 482913',
-    '---', 'Open admin board', 'Open stage view', 'Set up HTTPS (for MIDI on other devices)…', '---', 'Stop server', 'Start at login', '---', 'Quit FixMyMix',
+    '---', 'Open admin board', 'Open stage view', 'Show QR code for performers', 'Set up HTTPS (for MIDI on other devices)…', '---', 'Stop server', 'Start at login', '---', 'Quit FixMyMix',
   ]);
   find(items, 'Set up HTTPS (for MIDI on other devices)…').click();
   find(items, 'http://10.0.0.5:8080').click();
   find(items, 'Admin passcode: 482913').click();
   find(items, 'Open admin board').click();
+  find(items, 'Show QR code for performers').click();
   find(items, 'Stop server').click();
-  assert.deepEqual(calls, [['setupHttps'], ['copy', 'http://10.0.0.5:8080'], ['copy', '482913'], ['open', 'http://localhost:8080/admin'], ['stop']]);
+  assert.deepEqual(calls, [['setupHttps'], ['copy', 'http://10.0.0.5:8080'], ['copy', '482913'], ['open', 'http://localhost:8080/admin'], ['open', 'http://localhost:8080/join'], ['stop']]);
   assert.equal(find(items, 'Start at login').type, 'checkbox');
   assert.equal(find(items, 'Start at login').checked, false);
 });

@@ -22,6 +22,7 @@ export function buildMenu(state, actions) {
     items.push({ type: 'separator' });
     items.push({ label: 'Open admin board', click: () => actions.open(`${localUrl}/admin`) });
     items.push({ label: 'Open stage view', click: () => actions.open(`${localUrl}/stage`) });
+    items.push({ label: 'Show QR code for performers', click: () => actions.open(`${localUrl}/join`) });
     if (!(state.httpsUrls ?? []).length) {
       items.push({ label: 'Set up HTTPS (for MIDI on other devices)…', click: () => actions.setupHttps() });
     }
