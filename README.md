@@ -52,7 +52,7 @@ npm install
 npm run app:package
 ```
 
-That produces `desktop/dist/FixMyMix-darwin-<arch>/FixMyMix.app`; drag it to Applications. It's a menu-bar-only app (no Dock icon) that bundles its own copy of Node, so the show Mac needs nothing else installed. It stores its state under `~/Library/Application Support/FixMyMix/`. `npm run app` runs it unpackaged for development.
+That produces `desktop/dist/FixMyMix-darwin-<arch>/FixMyMix.app`; drag it to Applications. If the project folder is synced by Dropbox or iCloud, build somewhere local instead — a synced folder turns files inside the app into online-only placeholders and Finder then refuses to copy it: `FIXMYMIX_APP_OUT=~/Desktop npm run app:package`. It's a menu-bar-only app (no Dock icon) that bundles its own copy of Node, so the show Mac needs nothing else installed. It stores its state under `~/Library/Application Support/FixMyMix/`. `npm run app` runs it unpackaged for development.
 
 The app isn't code-signed, so the first launch needs a right-click → Open (or System Settings → Privacy & Security → Open Anyway).
 
