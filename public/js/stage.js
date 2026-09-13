@@ -1,4 +1,7 @@
 import { watchState, post, toast, el, vibrate } from './net.js';
+import { glyph } from './icons.js';
+
+const withGlyph = (item) => (glyph(item.icon) ? `${glyph(item.icon)} ${item.name}` : item.name);
 
 const MEMBER_KEY = 'fixmymix.memberId';
 const SETTINGS_KEY = 'fixmymix.settings';
@@ -95,7 +98,7 @@ function renderPicker() {
   ui.who.textContent = 'Pick your name';
   ui.members.replaceChildren(
     ...state.members.map((m) =>
-      el('button', { type: 'button', text: m.name, onclick: () => { saveMember(m.id); render(); } }),
+      el('button', { type: 'button', text: withGlyph(m), onclick: () => { saveMember(m.id); render(); } }),
     ),
   );
 }
@@ -144,7 +147,7 @@ function renderRow(view) {
   const tap = (direction, text) =>
     el('button', { type: 'button', class: `tap ${direction}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [text, view.badge(direction)]);
   const row = el('div', { class: `channel${view.stateClass}` }, [
-    el('div', {}, [el('div', { class: 'name', text: view.channel.name }), view.stateLine]),
+    el('div', {}, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     tap('less', '−'),
     tap('more', '+'),
   ]);
@@ -157,7 +160,7 @@ function renderBox(view) {
     el('button', { type: 'button', class: `half ${position}${view.badge(direction) ? ' active' : ''}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [arrow, view.badge(direction)]);
   const box = el('div', { class: `box${view.stateClass}` }, [
     half('more', '▲', 'up'),
-    el('div', { class: 'middle' }, [el('div', { class: 'name', text: view.channel.name }), view.stateLine]),
+    el('div', { class: 'middle' }, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     half('less', '▼', 'down'),
   ]);
   if (view.showDone) box.addEventListener('click', () => dismiss(view.channel.id));
@@ -168,7 +171,7 @@ function renderChannels(member) {
   ui.picker.classList.add('hidden');
   ui.mix.classList.remove('hidden');
   ui.switchBtn.classList.remove('hidden');
-  ui.who.textContent = member.name;
+  ui.who.textContent = withGlyph(member);
   ui.hint.textContent = HINTS[settings.layout][settings.autoDismiss ? 'auto' : 'sticky'];
 
   const pendingByChannel = new Map(

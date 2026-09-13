@@ -141,3 +141,22 @@ test('subscribers receive a snapshot on every change', () => {
   assert.equal(seen.length, 2);
   assert.equal(seen[1], seen[0] + 1);
 });
+
+test('icons are guessed for defaults, validated on load and carried into requests', async () => {
+  const { guessIcon } = await import('../public/js/icons.js');
+  assert.equal(guessIcon('Lead Vox'), 'vocal');
+  assert.equal(guessIcon('Bass guitar'), 'bass');
+  assert.equal(guessIcon('Kick'), 'drums');
+  assert.equal(guessIcon('Mystery'), '');
+  const store = new Store();
+  store.quickSetup(1, 3);
+  assert.deepEqual(store.members[0].channels.map((c) => c.icon), ['vocal', 'guitar', 'bass']);
+  store.setRoster([{ id: store.members[0].id, name: 'Alex', icon: 'drums', channels: [{ name: 'Snare', icon: 'drums' }, { name: 'Odd', icon: 'not-an-icon' }] }]);
+  assert.equal(store.members[0].icon, 'drums');
+  assert.deepEqual(store.members[0].channels.map((c) => c.icon), ['drums', '']);
+  const request = store.submitRequest({ memberId: store.members[0].id, channelId: store.members[0].channels[0].id, direction: 'more' });
+  assert.equal(request.channelIcon, 'drums');
+  const restored = new Store(JSON.parse(JSON.stringify(store.snapshot())));
+  assert.equal(restored.members[0].icon, 'drums');
+  assert.equal(restored.requests[0].channelIcon, 'drums');
+});

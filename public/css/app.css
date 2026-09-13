@@ -268,8 +268,8 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .roster-member .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .roster-member .head input { flex: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 4px 4px 10px; }
-.chip input { width: 110px; min-height: 36px; border: 0; background: transparent; padding: 0; }
+.chip { display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px 4px 4px 4px; }
+.chip input { width: 100px; min-height: 36px; border: 0; background: transparent; padding: 0; }
 .chip button, .roster-member .head button.icon { min-height: 36px; min-width: 36px; padding: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 1.1rem; }
 .chip button:hover, .roster-member .head button.icon:hover { color: var(--danger); }
 .add-chip { min-height: 44px; padding: 0 12px; border: 1px dashed var(--line); background: transparent; color: var(--muted); }
@@ -373,3 +373,27 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .box.done { border-color: var(--done); cursor: pointer; animation: pop 400ms ease; }
 .box.done .middle { background: #12301d; }
 .box.done .middle .state { color: var(--done); font-weight: 700; }
+
+/* Icon picker (roster editor) */
+.icon-pick { min-width: 36px; min-height: 36px; padding: 0; border-radius: 8px; background: var(--panel); font-size: 1.15rem; line-height: 1; }
+.icon-pick.empty { color: var(--muted); border: 1px dashed var(--line); background: transparent; font-size: 1rem; }
+.roster-member .head .icon-pick { min-width: 44px; min-height: 44px; font-size: 1.4rem; }
+.icon-menu {
+  position: absolute;
+  z-index: 30;
+  width: 230px;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+}
+.icon-menu button { min-height: 40px; padding: 0 8px; text-align: left; background: transparent; border-radius: 8px; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+.icon-menu button .glyph { font-size: 1.2rem; width: 1.5em; text-align: center; }
+.icon-menu button:hover, .icon-menu button:focus { background: var(--bg); outline: none; }
+.icon-menu button.selected { background: #1c2b45; }
