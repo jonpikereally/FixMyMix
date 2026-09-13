@@ -13,7 +13,8 @@ The first mode is **Mix mode**: performers ask the engineer for more or less of 
 ```
 
 - **Admin (`/admin`)** — passcode-locked. Sets the show name, the number of band members and the channels each one hears (Quick setup), then renames anything in the roster editor. The board groups pending requests by performer, shows how long each has been waiting, and turns red after 30 s. *Done* clears one, *All done* clears a performer, *Clear all* clears the board.
-- **Stage (`/stage`)** — a performer picks their name once (remembered on the device) and gets one big row per channel with **−** and **+**. Tapping sends a request; the row turns amber with *Sent*. Tapping again pushes harder (×2, ×3…), tapping the other direction swaps it, and *cancel* withdraws it. When the engineer marks it done, the row turns green with **Done ✓** and the phone vibrates.
+- **Stage (`/stage`)** — a performer picks their name once (remembered on the device) and gets one big row per channel with **−** and **+**. Tapping sends a request; the row turns amber with *Sent*. Tapping again pushes harder (×2, ×3…), tapping the other direction swaps it, and *cancel* withdraws it. When the engineer marks it done, the row turns green with **Done ✓** and the phone vibrates. The ⚙ settings on the stage page (saved per device) include **Auto-dismiss confirmations**: on, the green row fades after 8 s; off, it stays until the performer taps it.
+- The admin Setup tab also has **Add a channel to every member**, which appends one channel (e.g. *Click*) to everyone who doesn't already have it.
 - Everything is pushed live over Server-Sent Events with a polling fallback, so a phone that wakes from sleep catches up straight away.
 
 ## Running it
@@ -71,6 +72,8 @@ The terminal prints the LAN address(es) and the admin passcode:
 1. Put the laptop and every device on the same Wi-Fi (a phone hotspot or a travel router works fine; the router doesn't need an uplink).
 2. Open `/admin` on the engineer's device, enter the passcode, run **Quick setup**, rename members and channels.
 3. Performers open the LAN address, tap **I'm on stage**, pick their name. Adding the page to the home screen gives a full-screen view.
+
+The admin board is just a web page too, so it can run on an iPad (or a phone, or a second laptop) on the same Wi-Fi: open `http://<address>:8080/admin`, enter the passcode, and use Share → *Add to Home Screen* for a full-screen board. Any number of admin devices can be open at once. The server itself still runs on the Mac — an iPad can't host it.
 
 ### Options
 

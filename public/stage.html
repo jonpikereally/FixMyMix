@@ -18,7 +18,20 @@
         <p class="muted small sub"><span id="status" class="status-dot"></span><span id="who">Connecting…</span></p>
       </div>
       <button id="switch" class="ghost hidden" type="button">Not me</button>
+      <button id="settingsBtn" class="ghost icon-btn" type="button" aria-label="Settings" aria-expanded="false">⚙</button>
     </div>
+
+    <section id="settings" class="card hidden">
+      <h2>Settings</h2>
+      <label class="setting">
+        <input id="autoDismiss" type="checkbox" checked>
+        <span>
+          <strong>Auto-dismiss confirmations</strong>
+          <span class="muted small">On: the green “Done ✓” fades after 8 seconds. Off: it stays until you tap it.</span>
+        </span>
+      </label>
+      <p class="muted small">Settings are saved on this device only.</p>
+    </section>
 
     <div id="offline" class="banner hidden">No connection to the mix desk. Requests will send once you're back on the show Wi-Fi.</div>
 
@@ -30,7 +43,7 @@
 
     <section id="mix" class="hidden">
       <div id="channels"></div>
-      <p class="muted small">Tap <strong>−</strong> or <strong>+</strong> to ask for less or more. Tap again to push harder. The row turns green when it's been done.</p>
+      <p id="hint" class="muted small"></p>
     </section>
   </main>
   <script type="module" src="/js/stage.js"></script>

@@ -310,3 +310,14 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .num { width: 120px; }
 .self-end { align-self: flex-end; }
 .narrow.card { margin-left: auto; margin-right: auto; }
+
+/* Stage settings */
+.icon-btn { min-width: 40px; padding: 0 10px; font-size: 1.2rem; }
+.setting { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; cursor: pointer; color: var(--text); font-size: 1rem; }
+.setting input { width: 24px; height: 24px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.setting span span { display: block; margin-top: 2px; }
+.channel.done { cursor: pointer; }
+.channel .state .ok { border-color: var(--done); color: var(--done); }
+
+/* Admin: add to everyone */
+.everyone { border: 1px dashed var(--line); border-radius: 12px; padding: 4px 12px 8px; margin-bottom: 14px; }
