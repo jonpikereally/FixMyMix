@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FixMyMix · Stage</title>
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <main class="wrap narrow">
+    <div class="topbar">
+      <div class="grow">
+        <h1 id="title">FixMyMix</h1>
+        <p class="muted small sub"><span id="status" class="status-dot"></span><span id="who">Connecting…</span></p>
+      </div>
+      <button id="switch" class="ghost hidden" type="button">Not me</button>
+    </div>
+
+    <div id="offline" class="banner hidden">No connection to the mix desk. Requests will send once you're back on the show Wi-Fi.</div>
+
+    <section id="picker" class="hidden">
+      <h2 class="mb-md">Who are you?</h2>
+      <div id="members" class="member-list"></div>
+      <p class="muted small">Your choice is remembered on this device.</p>
+    </section>
+
+    <section id="mix" class="hidden">
+      <div id="channels"></div>
+      <p class="muted small">Tap <strong>−</strong> or <strong>+</strong> to ask for less or more. Tap again to push harder. The row turns green when it's been done.</p>
+    </section>
+  </main>
+  <script type="module" src="/js/stage.js"></script>
+</body>
+</html>
