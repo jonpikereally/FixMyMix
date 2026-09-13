@@ -32,7 +32,9 @@ function load() {
 }
 
 function save() {
-  prefs = { ...prefs, app, ablesetPort: ui.ablesetPort.value, ablesetHost: ui.ablesetHost.value, ablesetCustom: ui.ablesetCustom.value.trim(), customUrl: ui.customUrl.value.trim() };
+  // ablesetHost is stored only when the user picks one (see the change handler),
+  // so a placeholder chosen before the addresses arrived is never remembered.
+  prefs = { ...prefs, app, ablesetPort: ui.ablesetPort.value, ablesetCustom: ui.ablesetCustom.value.trim(), customUrl: ui.customUrl.value.trim() };
   try {
     localStorage.setItem(STORAGE, JSON.stringify(prefs));
   } catch {
@@ -68,12 +70,12 @@ function target() {
 }
 
 function renderHosts() {
-  const current = ui.ablesetHost.value || prefs.ablesetHost;
   ui.ablesetHost.replaceChildren(
     ...hosts.map((h) => el('option', { value: h, text: `${h} (this computer)` })),
     el('option', { value: 'custom', text: 'Another computer…' }),
   );
-  ui.ablesetHost.value = [...ui.ablesetHost.options].some((o) => o.value === current) ? current : (hosts[0] ?? 'custom');
+  const wanted = prefs.ablesetHost;
+  ui.ablesetHost.value = wanted && [...ui.ablesetHost.options].some((o) => o.value === wanted) ? wanted : (hosts[0] ?? 'custom');
   ui.ablesetCustomWrap.classList.toggle('hidden', ui.ablesetHost.value !== 'custom');
 }
 
@@ -129,7 +131,12 @@ async function refresh() {
 }
 
 for (const tab of ui.tabs) tab.addEventListener('click', () => { app = tab.dataset.app; save(); render(); });
-ui.ablesetHost.addEventListener('change', () => { ui.ablesetCustomWrap.classList.toggle('hidden', ui.ablesetHost.value !== 'custom'); save(); render(); });
+ui.ablesetHost.addEventListener('change', () => {
+  prefs.ablesetHost = ui.ablesetHost.value;
+  ui.ablesetCustomWrap.classList.toggle('hidden', ui.ablesetHost.value !== 'custom');
+  save();
+  render();
+});
 for (const input of [ui.ablesetPort, ui.ablesetCustom, ui.customUrl]) input.addEventListener('input', () => { save(); render(); });
 
 if (prefs.ablesetPort) ui.ablesetPort.value = prefs.ablesetPort;
