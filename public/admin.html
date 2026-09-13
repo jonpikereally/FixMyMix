@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FixMyMix · Admin</title>
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <main class="wrap">
+    <div class="topbar">
+      <div class="grow">
+        <h1 id="title">FixMyMix</h1>
+        <p class="muted small sub"><span id="status" class="status-dot"></span><span id="subtitle">Admin</span></p>
+      </div>
+      <a id="qrLink" class="ghost btn-link hidden" href="/join" target="_blank" rel="noopener" title="QR code for performers">QR</a>
+      <span id="pendingPill" class="pill">0</span>
+      <button id="tabBoard" class="primary hidden" type="button">Board</button>
+      <button id="tabSetup" class="ghost hidden" type="button">Setup</button>
+      <button id="logout" class="ghost hidden" type="button">Lock</button>
+    </div>
+
+    <div id="offline" class="banner hidden">Lost connection to the server. Reconnecting…</div>
+
+    <section id="login" class="card narrow hidden">
+      <h2>Admin passcode</h2>
+      <p class="muted small">Shown in the FixMyMix menu, or the terminal where it's running.</p>
+      <form id="loginForm">
+        <label for="passcode">Passcode</label>
+        <input id="passcode" type="password" inputmode="numeric" autocomplete="off" autofocus>
+        <div class="row end mt">
+          <button class="primary" type="submit">Unlock</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="board" class="hidden">
+      <div class="row mb">
+        <div class="grow muted small" id="boardHint">Requests appear here as performers tap. Press Done once you've made the change.</div>
+        <button id="resolveAll" class="ghost" type="button">Clear all</button>
+      </div>
+      <div id="memberCards" class="grid"></div>
+      <div class="card">
+        <div class="row mb-sm">
+          <h3 class="grow">Recently done</h3>
+          <button id="clearHistory" class="ghost compact" type="button">Clear list</button>
+        </div>
+        <ul id="log" class="log"></ul>
+      </div>
+    </section>
+
+    <section id="setup" class="hidden">
+      <div class="card">
+        <h2>Show</h2>
+        <label for="showName">Show name (shown on every device)</label>
+        <div class="row">
+          <input id="showName" type="text" maxlength="60" class="grow-input">
+          <button id="saveShow" class="primary" type="button">Save</button>
+        </div>
+        <label class="setting mt">
+          <input id="allowMessages" type="checkbox">
+          <span>
+            <strong>Allow messages</strong>
+            <span class="muted small">Performers get a text field to message the desk, and you can message one of them or everyone from the board. Applies immediately.</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>Quick setup</h2>
+        <p class="muted small">Creates a fresh roster of numbered members, each with the same number of channels. You can rename everything below afterwards.</p>
+        <div class="row">
+          <div>
+            <label for="memberCount">Band members</label>
+            <input id="memberCount" type="number" min="1" max="24" value="4" class="num">
+          </div>
+          <div>
+            <label for="channelCount">Channels each</label>
+            <input id="channelCount" type="number" min="1" max="16" value="4" class="num">
+          </div>
+          <div class="self-end">
+            <button id="quickSetup" class="primary" type="button">Build roster</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>MIDI controller (this device)</h2>
+        <p class="muted small">Next/previous step through pending requests and messages, up/down jump between members, confirm marks the highlighted one done. Bindings are saved on this device.</p>
+        <div id="adminMidiPanel"></div>
+      </div>
+
+      <div class="card">
+        <div class="row mb-md">
+          <h2 class="grow">Roster</h2>
+          <button id="addMember" class="ghost" type="button">+ Member</button>
+        </div>
+        <div class="everyone">
+          <label for="allChannelName">Add a channel to every member</label>
+          <div class="row">
+            <input id="allChannelName" type="text" maxlength="40" placeholder="e.g. Click" class="grow-input">
+            <button id="addToAll" class="ghost" type="button">Add to everyone</button>
+          </div>
+          <p class="muted small">Skips anyone who already has a channel with that name. Press <strong>Save roster</strong> to apply.</p>
+        </div>
+        <div id="roster"></div>
+        <div class="row end">
+          <button id="revertRoster" class="ghost" type="button">Revert</button>
+          <button id="saveRoster" class="primary" type="button">Save roster</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <form id="adminComposer" class="composer hidden">
+    <div class="inner">
+      <select id="messageTo" aria-label="Send to"></select>
+      <input id="adminMessageText" type="text" maxlength="200" placeholder="Message…" autocomplete="off" aria-label="Message">
+      <button class="primary" type="submit">Send</button>
+    </div>
+  </form>
+  <script type="module" src="/js/admin.js"></script>
+</body>
+</html>
