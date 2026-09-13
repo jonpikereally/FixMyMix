@@ -29,7 +29,7 @@ function state() {
     urls: running?.urls ?? [],
     httpsUrls: running?.httpsUrls ?? [],
     passcode: running?.passcode ?? null,
-    port: PORT,
+    port: running?.port ?? PORT,
     loginItem: app.getLoginItemSettings().openAtLogin,
   };
 }
