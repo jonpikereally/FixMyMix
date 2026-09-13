@@ -1,4 +1,4 @@
-import { watchState, post, toast, el, vibrate } from './net.js';
+import { watchState, post, toast, el, vibrate, ago } from './net.js';
 import { glyph } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 
@@ -152,6 +152,11 @@ function dismiss(channelId) {
   render();
 }
 
+// "· 12s ago" next to a confirmation, ticked in place by the interval below.
+function sinceLabel(resolvedAt) {
+  return el('span', { class: 'since', 'data-resolved': resolvedAt, text: ` · ${ago(resolvedAt)} ago` });
+}
+
 function dismissMessage(messageId) {
   if (!messageConfirmations.delete(messageId)) return;
   render();
@@ -205,7 +210,7 @@ function renderMessages(member) {
   ui.myMessages.replaceChildren(
     ...outgoing.map((m) => {
       const seen = m.status === 'done';
-      const stateLine = el('div', { class: 'state' }, seen ? ['Seen ✓'] : ['Sent']);
+      const stateLine = el('div', { class: 'state' }, seen ? ['Seen ✓', sinceLabel(m.resolvedAt)] : ['Sent']);
       if (seen && !settings.autoDismiss) {
         stateLine.append(el('button', { type: 'button', class: 'cancel ok', text: 'OK', onclick: (e) => { e.stopPropagation(); dismissMessage(m.id); } }));
       }
@@ -244,7 +249,7 @@ function channelView(member, channel, pending, confirmed) {
   const showDone = Boolean(confirmed && confirmed.until > Date.now() && !pending);
   const stateLine = el('div', { class: 'state' });
   if (showDone) {
-    stateLine.append(`Done ✓ ${confirmed.request.direction === 'more' ? 'turned up' : 'turned down'}`);
+    stateLine.append(`Done ✓ ${confirmed.request.direction === 'more' ? 'turned up' : 'turned down'}`, sinceLabel(confirmed.request.resolvedAt));
     if (!settings.autoDismiss) {
       stateLine.append(el('button', { type: 'button', class: 'cancel ok', text: 'OK', onclick: (e) => { e.stopPropagation(); dismiss(channel.id); } }));
     }
@@ -403,9 +408,13 @@ watchState({
   },
 });
 
-// Expire "done" flashes without waiting for the next server push.
+// Expire "done" flashes without waiting for the next server push, and keep
+// the "ago" labels on the ones still showing current.
 setInterval(() => {
   const now = Date.now();
+  for (const label of document.querySelectorAll('.since[data-resolved]')) {
+    label.textContent = ` · ${ago(Number(label.dataset.resolved))} ago`;
+  }
   let changed = false;
   for (const map of [confirmations, messageConfirmations]) {
     for (const [key, entry] of map) {
