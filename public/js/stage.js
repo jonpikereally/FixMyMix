@@ -3,7 +3,8 @@ import { watchState, post, toast, el, vibrate } from './net.js';
 const MEMBER_KEY = 'fixmymix.memberId';
 const SETTINGS_KEY = 'fixmymix.settings';
 const CONFIRM_MS = 8000;
-const DEFAULT_SETTINGS = { autoDismiss: true };
+const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows' };
+const LAYOUTS = new Set(['rows', 'boxes']);
 
 const ui = {
   title: document.getElementById('title'),
@@ -13,6 +14,7 @@ const ui = {
   settingsBtn: document.getElementById('settingsBtn'),
   settings: document.getElementById('settings'),
   autoDismiss: document.getElementById('autoDismiss'),
+  layoutInputs: document.querySelectorAll('input[name="layout"]'),
   offline: document.getElementById('offline'),
   picker: document.getElementById('picker'),
   members: document.getElementById('members'),
@@ -24,6 +26,7 @@ const ui = {
 let state = null;
 let memberId = readStored(MEMBER_KEY, null);
 let settings = { ...DEFAULT_SETTINGS, ...(readStored(SETTINGS_KEY, {}) ?? {}) };
+if (!LAYOUTS.has(settings.layout)) settings.layout = 'rows';
 let settingsOpen = false;
 // Requests this device has seen pending; when one flips to done we confirm it.
 const knownPending = new Set();
@@ -97,66 +100,85 @@ function renderPicker() {
   );
 }
 
+const HINTS = {
+  rows: {
+    auto: 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.',
+    sticky: 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.',
+  },
+  boxes: {
+    auto: 'Tap the top of a box for more, the bottom for less. Tap again to push harder. The box turns green when it\'s been done.',
+    sticky: 'Tap the top of a box for more, the bottom for less. Tap again to push harder. The box turns green when it\'s been done; tap it to clear.',
+  },
+};
+
+/** Everything a channel's row or box needs to draw itself, independent of layout. */
+function channelView(member, channel, pending, confirmed) {
+  const showDone = Boolean(confirmed && confirmed.until > Date.now() && !pending);
+  const stateLine = el('div', { class: 'state' });
+  if (showDone) {
+    stateLine.append(`Done ✓ ${confirmed.request.direction === 'more' ? 'turned up' : 'turned down'}`);
+    if (!settings.autoDismiss) {
+      stateLine.append(el('button', { type: 'button', class: 'cancel ok', text: 'OK', onclick: (e) => { e.stopPropagation(); dismiss(channel.id); } }));
+    }
+  } else if (pending) {
+    stateLine.append(
+      `Sent: ${pending.direction === 'more' ? 'more' : 'less'}${pending.count > 1 ? ` ×${pending.count}` : ''}`,
+      el('button', {
+        type: 'button', class: 'cancel', text: 'cancel',
+        onclick: (e) => { e.stopPropagation(); act(() => post('/api/requests/cancel', { memberId: member.id, requestId: pending.id })); },
+      }),
+    );
+  }
+  const send = (direction) => (event) => {
+    event.stopPropagation();
+    confirmations.delete(channel.id);
+    act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }));
+  };
+  const badge = (direction) => (pending?.direction === direction ? el('span', { class: 'count', text: `×${pending.count}` }) : null);
+  const stateClass = showDone ? ' done' : pending ? ' pending' : '';
+  const label = (direction) => `${direction === 'more' ? 'More' : 'Less'} ${channel.name}`;
+  return { channel, showDone, stateLine, send, badge, stateClass, label };
+}
+
+function renderRow(view) {
+  const tap = (direction, text) =>
+    el('button', { type: 'button', class: `tap ${direction}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [text, view.badge(direction)]);
+  const row = el('div', { class: `channel${view.stateClass}` }, [
+    el('div', {}, [el('div', { class: 'name', text: view.channel.name }), view.stateLine]),
+    tap('less', '−'),
+    tap('more', '+'),
+  ]);
+  if (view.showDone) row.addEventListener('click', () => dismiss(view.channel.id));
+  return row;
+}
+
+function renderBox(view) {
+  const half = (direction, arrow, position) =>
+    el('button', { type: 'button', class: `half ${position}${view.badge(direction) ? ' active' : ''}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [arrow, view.badge(direction)]);
+  const box = el('div', { class: `box${view.stateClass}` }, [
+    half('more', '▲', 'up'),
+    el('div', { class: 'middle' }, [el('div', { class: 'name', text: view.channel.name }), view.stateLine]),
+    half('less', '▼', 'down'),
+  ]);
+  if (view.showDone) box.addEventListener('click', () => dismiss(view.channel.id));
+  return box;
+}
+
 function renderChannels(member) {
   ui.picker.classList.add('hidden');
   ui.mix.classList.remove('hidden');
   ui.switchBtn.classList.remove('hidden');
   ui.who.textContent = member.name;
-  ui.hint.textContent = settings.autoDismiss
-    ? 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.'
-    : 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.';
+  ui.hint.textContent = HINTS[settings.layout][settings.autoDismiss ? 'auto' : 'sticky'];
 
   const pendingByChannel = new Map(
     state.requests.filter((r) => r.status === 'pending' && r.memberId === member.id).map((r) => [r.channelId, r]),
   );
-  const now = Date.now();
-
-  ui.channels.replaceChildren(
-    ...member.channels.map((channel) => {
-      const pending = pendingByChannel.get(channel.id);
-      const confirmed = confirmations.get(channel.id);
-      const showDone = confirmed && confirmed.until > now && !pending;
-
-      const stateLine = el('div', { class: 'state' });
-      if (showDone) {
-        stateLine.append(`Done ✓ ${confirmed.request.direction === 'more' ? 'turned up' : 'turned down'}`);
-        if (!settings.autoDismiss) {
-          stateLine.append(el('button', { type: 'button', class: 'cancel ok', text: 'OK', onclick: () => dismiss(channel.id) }));
-        }
-      } else if (pending) {
-        stateLine.append(
-          `Sent: ${pending.direction === 'more' ? 'more' : 'less'}${pending.count > 1 ? ` ×${pending.count}` : ''}`,
-          el('button', {
-            type: 'button', class: 'cancel', text: 'cancel',
-            onclick: () => act(() => post('/api/requests/cancel', { memberId: member.id, requestId: pending.id })),
-          }),
-        );
-      }
-
-      const tap = (direction, label) => {
-        const button = el('button', {
-          type: 'button',
-          class: `tap ${direction}`,
-          'aria-label': `${direction === 'more' ? 'More' : 'Less'} ${channel.name}`,
-          onclick: (event) => {
-            event.stopPropagation();
-            confirmations.delete(channel.id);
-            act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }));
-          },
-        }, label);
-        if (pending?.direction === direction) button.append(el('span', { class: 'count', text: `×${pending.count}` }));
-        return button;
-      };
-
-      const row = el('div', { class: `channel${showDone ? ' done' : pending ? ' pending' : ''}` }, [
-        el('div', {}, [el('div', { class: 'name', text: channel.name }), stateLine]),
-        tap('less', '−'),
-        tap('more', '+'),
-      ]);
-      if (showDone) row.addEventListener('click', () => dismiss(channel.id));
-      return row;
-    }),
-  );
+  const views = member.channels.map((channel) => channelView(member, channel, pendingByChannel.get(channel.id), confirmations.get(channel.id)));
+  ui.channels.className = settings.layout === 'boxes' ? 'boxes' : '';
+  // Rows read best in a narrow column; boxes want the whole width on a tablet.
+  document.querySelector('main').classList.toggle('narrow', settings.layout !== 'boxes');
+  ui.channels.replaceChildren(...views.map(settings.layout === 'boxes' ? renderBox : renderRow));
 }
 
 async function act(fn) {
@@ -173,6 +195,7 @@ function render() {
   document.title = `${state.show.name} · Stage`;
   ui.settings.classList.toggle('hidden', !settingsOpen);
   ui.autoDismiss.checked = settings.autoDismiss;
+  for (const input of ui.layoutInputs) input.checked = input.value === settings.layout;
   const member = currentMember();
   if (!member) {
     if (memberId) saveMember(null);
@@ -204,6 +227,15 @@ ui.autoDismiss.addEventListener('change', () => {
   }
   render();
 });
+
+for (const input of ui.layoutInputs) {
+  input.addEventListener('change', () => {
+    if (!input.checked || !LAYOUTS.has(input.value)) return;
+    settings.layout = input.value;
+    writeStored(SETTINGS_KEY, settings);
+    render();
+  });
+}
 
 watchState({
   onState: (snapshot) => {
