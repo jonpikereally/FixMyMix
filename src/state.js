@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { ICON_KEYS, guessIcon } from '../public/js/icons.js';
 
 export const MAX_MEMBERS = 24;
 export const MAX_CHANNELS = 16;
@@ -28,6 +29,10 @@ function text(value, fallback, max = 40) {
   return out || fallback;
 }
 
+function iconKey(value) {
+  return ICON_KEYS.has(value) ? value : '';
+}
+
 function clamp(value, min, max, fallback) {
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n)) return fallback;
@@ -36,10 +41,10 @@ function clamp(value, min, max, fallback) {
 
 export function defaultChannels(count) {
   const total = clamp(count, 1, MAX_CHANNELS, 4);
-  return Array.from({ length: total }, (_, i) => ({
-    id: newId(),
-    name: DEFAULT_CHANNEL_NAMES[i] ?? `Ch ${i + 1}`,
-  }));
+  return Array.from({ length: total }, (_, i) => {
+    const name = DEFAULT_CHANNEL_NAMES[i] ?? `Ch ${i + 1}`;
+    return { id: newId(), name, icon: guessIcon(name) };
+  });
 }
 
 export function buildRoster(memberCount, channelCount) {
@@ -47,6 +52,7 @@ export function buildRoster(memberCount, channelCount) {
   return Array.from({ length: total }, (_, i) => ({
     id: newId(),
     name: `Member ${i + 1}`,
+    icon: '',
     channels: defaultChannels(channelCount),
   }));
 }
@@ -59,7 +65,7 @@ function normalizeChannels(raw) {
     let id = text(channel?.id, '', 32) || newId();
     if (seen.has(id)) id = newId();
     seen.add(id);
-    channels.push({ id, name: text(channel?.name, `Ch ${i + 1}`) });
+    channels.push({ id, name: text(channel?.name, `Ch ${i + 1}`), icon: iconKey(channel?.icon) });
   }
   return channels.length ? channels : defaultChannels(4);
 }
@@ -74,6 +80,7 @@ function normalizeMembers(raw) {
     return {
       id,
       name: text(member?.name, `Member ${i + 1}`),
+      icon: iconKey(member?.icon),
       channels: normalizeChannels(member?.channels),
     };
   });
@@ -95,6 +102,7 @@ function normalizeRequests(raw, members) {
       memberName: text(entry?.memberName, 'Unknown'),
       channelId,
       channelName: text(entry?.channelName, 'Unknown'),
+      channelIcon: iconKey(entry?.channelIcon),
       direction: DIRECTIONS.has(entry?.direction) ? entry.direction : 'more',
       count: clamp(entry?.count, 1, MAX_COUNT, 1),
       status,
@@ -132,6 +140,7 @@ export class Store {
       members: this.members.map((m) => ({
         id: m.id,
         name: m.name,
+        icon: m.icon,
         channels: m.channels.map((c) => ({ ...c })),
       })),
       requests: this.requests.map((r) => ({ ...r })),
@@ -183,6 +192,7 @@ export class Store {
       if (!channel) return false;
       request.memberName = member.name;
       request.channelName = channel.name;
+      request.channelIcon = channel.icon;
       return true;
     });
     return this.#commit();
@@ -218,6 +228,7 @@ export class Store {
       }
       existing.memberName = member.name;
       existing.channelName = channel.name;
+      existing.channelIcon = channel.icon;
       existing.updatedAt = now;
       request = existing;
     } else {
@@ -227,6 +238,7 @@ export class Store {
         memberName: member.name,
         channelId: channel.id,
         channelName: channel.name,
+        channelIcon: channel.icon,
         direction,
         count: 1,
         status: 'pending',
