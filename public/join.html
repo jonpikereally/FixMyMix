@@ -23,15 +23,15 @@
       <button type="button" data-app="custom" role="tab">Any address</button>
     </div>
     <div id="abletOptions" class="card options hidden">
-      <p class="muted small">AbleSet's web app lives on the computer running Ableton. Pick that computer's address and the port AbleSet shows in its window.</p>
+      <p class="muted small">AbleSet's web app lives on the computer running Ableton. Pick that computer's address. Leave the port empty unless AbleSet's window shows one after the address (like <code>:1234</code>).</p>
       <div class="row">
         <div class="grow">
           <label for="abletHost">Computer</label>
           <select id="abletHost"></select>
         </div>
         <div>
-          <label for="abletPort">Port</label>
-          <input id="abletPort" type="number" min="1" max="65535" value="8080" class="num">
+          <label for="abletPort">Port (optional)</label>
+          <input id="abletPort" type="number" min="1" max="65535" placeholder="none" class="num">
         </div>
       </div>
       <div id="abletHostCustomWrap" class="hidden">
