@@ -330,7 +330,8 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .box {
   display: grid;
   grid-template-rows: 1fr auto 1fr;
-  min-height: 210px;
+  /* Taller on a tablet, so the halves are easy to hit from a mic stand. */
+  min-height: clamp(210px, 28vh, 340px);
   background: var(--panel);
   border: 2px solid var(--line);
   border-radius: var(--radius);
