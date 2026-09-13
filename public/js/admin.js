@@ -11,6 +11,7 @@ const ui = {
   setup: $('setup'), showName: $('showName'), saveShow: $('saveShow'),
   memberCount: $('memberCount'), channelCount: $('channelCount'), quickSetup: $('quickSetup'),
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
+  allChannelName: $('allChannelName'), addToAll: $('addToAll'),
 };
 
 let state = null;
@@ -229,6 +230,30 @@ ui.addMember.addEventListener('click', () => {
   draft.push({ id: null, name: '', channels: [{ id: null, name: 'Vocal' }] });
   renderRoster();
   ui.roster.lastElementChild?.querySelector('input')?.focus();
+});
+function addChannelToEveryone() {
+  const name = ui.allChannelName.value.trim();
+  if (!name) return toast('Type a channel name first', { error: true });
+  let added = 0;
+  let full = 0;
+  for (const member of draft) {
+    if (member.channels.some((c) => c.name.trim().toLowerCase() === name.toLowerCase())) continue;
+    if (member.channels.length >= 16) { full += 1; continue; }
+    member.channels.push({ id: null, name });
+    added += 1;
+  }
+  renderRoster();
+  ui.allChannelName.value = '';
+  if (!added) return toast(full ? 'Everyone already has that channel or is full' : 'Everyone already has that channel', { error: true });
+  toast(`Added “${name}” to ${added} member${added === 1 ? '' : 's'}${full ? ` (${full} full)` : ''} — press Save roster`);
+}
+
+ui.addToAll.addEventListener('click', addChannelToEveryone);
+ui.allChannelName.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    addChannelToEveryone();
+  }
 });
 ui.saveRoster.addEventListener('click', saveRoster);
 ui.revertRoster.addEventListener('click', () => { seedDraft(); renderRoster(); toast('Changes discarded'); });

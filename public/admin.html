@@ -85,6 +85,14 @@
           <h2 class="grow">Roster</h2>
           <button id="addMember" class="ghost" type="button">+ Member</button>
         </div>
+        <div class="everyone">
+          <label for="allChannelName">Add a channel to every member</label>
+          <div class="row">
+            <input id="allChannelName" type="text" maxlength="40" placeholder="e.g. Click" class="grow-input">
+            <button id="addToAll" class="ghost" type="button">Add to everyone</button>
+          </div>
+          <p class="muted small">Skips anyone who already has a channel with that name. Press <strong>Save roster</strong> to apply.</p>
+        </div>
         <div id="roster"></div>
         <div class="row end">
           <button id="revertRoster" class="ghost" type="button">Revert</button>

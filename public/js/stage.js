@@ -1,43 +1,58 @@
 import { watchState, post, toast, el, vibrate } from './net.js';
 
-const STORAGE_KEY = 'fixmymix.memberId';
+const MEMBER_KEY = 'fixmymix.memberId';
+const SETTINGS_KEY = 'fixmymix.settings';
 const CONFIRM_MS = 8000;
+const DEFAULT_SETTINGS = { autoDismiss: true };
 
 const ui = {
   title: document.getElementById('title'),
   who: document.getElementById('who'),
   status: document.getElementById('status'),
   switchBtn: document.getElementById('switch'),
+  settingsBtn: document.getElementById('settingsBtn'),
+  settings: document.getElementById('settings'),
+  autoDismiss: document.getElementById('autoDismiss'),
   offline: document.getElementById('offline'),
   picker: document.getElementById('picker'),
   members: document.getElementById('members'),
   mix: document.getElementById('mix'),
   channels: document.getElementById('channels'),
+  hint: document.getElementById('hint'),
 };
 
 let state = null;
-let memberId = readMember();
+let memberId = readStored(MEMBER_KEY, null);
+let settings = { ...DEFAULT_SETTINGS, ...(readStored(SETTINGS_KEY, {}) ?? {}) };
+let settingsOpen = false;
 // Requests this device has seen pending; when one flips to done we confirm it.
 const knownPending = new Set();
-// channelId -> { until, request } for the green "done" flash.
+// channelId -> { until, request } for the green "done" state. `until` is
+// Infinity when confirmations stay until tapped.
 const confirmations = new Map();
 
-function readMember() {
+function readStored(key, fallback) {
   try {
-    return localStorage.getItem(STORAGE_KEY) || null;
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return key === SETTINGS_KEY ? JSON.parse(raw) : raw;
   } catch {
-    return null;
+    return fallback;
+  }
+}
+
+function writeStored(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+  } catch {
+    // Private mode; the choice just lasts until reload.
   }
 }
 
 function saveMember(id) {
   memberId = id;
-  try {
-    if (id) localStorage.setItem(STORAGE_KEY, id);
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Private mode; the choice just lasts until reload.
-  }
+  writeStored(MEMBER_KEY, id);
 }
 
 function currentMember() {
@@ -53,7 +68,7 @@ function trackConfirmations(member) {
       knownPending.add(request.id);
     } else if (knownPending.has(request.id)) {
       knownPending.delete(request.id);
-      confirmations.set(request.channelId, { until: now + CONFIRM_MS, request });
+      confirmations.set(request.channelId, { until: settings.autoDismiss ? now + CONFIRM_MS : Infinity, request });
       if (!vibrated) {
         vibrate([120, 60, 120]);
         vibrated = true;
@@ -63,6 +78,11 @@ function trackConfirmations(member) {
   // Requests cancelled or dropped by a roster change vanish without becoming done.
   const live = new Set(mine.map((r) => r.id));
   for (const id of knownPending) if (!live.has(id)) knownPending.delete(id);
+}
+
+function dismiss(channelId) {
+  if (!confirmations.delete(channelId)) return;
+  render();
 }
 
 function renderPicker() {
@@ -82,6 +102,9 @@ function renderChannels(member) {
   ui.mix.classList.remove('hidden');
   ui.switchBtn.classList.remove('hidden');
   ui.who.textContent = member.name;
+  ui.hint.textContent = settings.autoDismiss
+    ? 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.'
+    : 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.';
 
   const pendingByChannel = new Map(
     state.requests.filter((r) => r.status === 'pending' && r.memberId === member.id).map((r) => [r.channelId, r]),
@@ -96,7 +119,10 @@ function renderChannels(member) {
 
       const stateLine = el('div', { class: 'state' });
       if (showDone) {
-        stateLine.textContent = `Done ✓ ${confirmed.request.direction === 'more' ? 'turned up' : 'turned down'}`;
+        stateLine.append(`Done ✓ ${confirmed.request.direction === 'more' ? 'turned up' : 'turned down'}`);
+        if (!settings.autoDismiss) {
+          stateLine.append(el('button', { type: 'button', class: 'cancel ok', text: 'OK', onclick: () => dismiss(channel.id) }));
+        }
       } else if (pending) {
         stateLine.append(
           `Sent: ${pending.direction === 'more' ? 'more' : 'less'}${pending.count > 1 ? ` ×${pending.count}` : ''}`,
@@ -112,17 +138,23 @@ function renderChannels(member) {
           type: 'button',
           class: `tap ${direction}`,
           'aria-label': `${direction === 'more' ? 'More' : 'Less'} ${channel.name}`,
-          onclick: () => act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction })),
+          onclick: (event) => {
+            event.stopPropagation();
+            confirmations.delete(channel.id);
+            act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }));
+          },
         }, label);
         if (pending?.direction === direction) button.append(el('span', { class: 'count', text: `×${pending.count}` }));
         return button;
       };
 
-      return el('div', { class: `channel${showDone ? ' done' : pending ? ' pending' : ''}` }, [
+      const row = el('div', { class: `channel${showDone ? ' done' : pending ? ' pending' : ''}` }, [
         el('div', {}, [el('div', { class: 'name', text: channel.name }), stateLine]),
         tap('less', '−'),
         tap('more', '+'),
       ]);
+      if (showDone) row.addEventListener('click', () => dismiss(channel.id));
+      return row;
     }),
   );
 }
@@ -139,6 +171,8 @@ function render() {
   if (!state) return;
   ui.title.textContent = state.show.name;
   document.title = `${state.show.name} · Stage`;
+  ui.settings.classList.toggle('hidden', !settingsOpen);
+  ui.autoDismiss.checked = settings.autoDismiss;
   const member = currentMember();
   if (!member) {
     if (memberId) saveMember(null);
@@ -151,6 +185,23 @@ function render() {
 
 ui.switchBtn.addEventListener('click', () => {
   saveMember(null);
+  render();
+});
+
+ui.settingsBtn.addEventListener('click', () => {
+  settingsOpen = !settingsOpen;
+  ui.settingsBtn.setAttribute('aria-expanded', String(settingsOpen));
+  render();
+});
+
+ui.autoDismiss.addEventListener('change', () => {
+  settings.autoDismiss = ui.autoDismiss.checked;
+  writeStored(SETTINGS_KEY, settings);
+  // Apply to anything already on screen so the toggle is felt immediately.
+  const now = Date.now();
+  for (const entry of confirmations.values()) {
+    entry.until = settings.autoDismiss ? Math.min(entry.until, now + CONFIRM_MS) : Infinity;
+  }
   render();
 });
 
