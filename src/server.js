@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { createApi, errorResponse, ApiError } from './api.js';
-import { createAuth, parseCookies, randomPasscode, randomSecret } from './auth.js';
+import { createAuth, parseCookies, randomSecret } from './auth.js';
 import { loadTls } from './tls.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,7 +52,7 @@ export const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
 };
 
-const PAGES = { '/': 'index.html', '/stage': 'stage.html', '/admin': 'admin.html' };
+const PAGES = { '/': 'index.html', '/stage': 'stage.html', '/admin': 'admin.html', '/join': 'join.html' };
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -66,17 +66,21 @@ function readJson(file, fallback, log) {
   }
 }
 
+// The passcode is a fixed default: this runs on a private stage Wi-Fi and the
+// point of the lock is to stop a performer wandering into the board by
+// accident, not to resist an attacker. ADMIN_PASSCODE overrides it.
+export const DEFAULT_PASSCODE = '1234';
+
 function loadConfig(dataDir, passcodeOverride, log) {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'config.json');
   const stored = readJson(file, {}, log);
   const config = {
     secret: typeof stored.secret === 'string' && stored.secret.length >= 32 ? stored.secret : randomSecret(),
-    passcode: /^\d{4,12}$/.test(String(stored.passcode ?? '')) ? String(stored.passcode) : randomPasscode(),
+    passcode: /^\d{4,12}$/.test(String(passcodeOverride ?? '')) ? String(passcodeOverride) : DEFAULT_PASSCODE,
   };
-  if (passcodeOverride) config.passcode = String(passcodeOverride);
-  if (config.secret !== stored.secret || config.passcode !== stored.passcode) {
-    fs.writeFileSync(file, JSON.stringify(config, null, 2), { mode: 0o600 });
+  if (config.secret !== stored.secret) {
+    fs.writeFileSync(file, JSON.stringify({ secret: config.secret }, null, 2), { mode: 0o600 });
   }
   return config;
 }
@@ -163,11 +167,11 @@ function attachStream(hub, req, res) {
   req.on('close', detach);
 }
 
-function createRequestListener({ api, log }) {
+function createRequestListener({ api, log, info }) {
   return async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (url.pathname === '/api/info') return sendJson(res, { status: 200, json: { mode: 'lan' } });
+      if (url.pathname === '/api/info') return sendJson(res, { status: 200, json: { mode: 'lan', ...info() } });
       if (url.pathname.startsWith('/api/')) {
         const result = await api.handle({
           method: req.method,
@@ -225,7 +229,10 @@ export async function start({
   if (!store.members.length) store.quickSetup(4, 4);
   const persister = createPersister(store, dataDir, log);
   const api = createApi({ store, auth: createAuth(config) });
-  const listener = createRequestListener({ api, log });
+  // Filled in once the ports are known; /api/info reports them so the join
+  // page can draw a QR code of the address performers should open.
+  let addresses = () => ({ urls: [], httpsUrls: [] });
+  const listener = createRequestListener({ api, log, info: () => addresses() });
   const server = http.createServer(listener);
   await listen(server, port, host);
 
@@ -248,16 +255,20 @@ export async function start({
     return ips.length ? ips : ['localhost'];
   };
 
+  const urls = () => hosts().map((ip) => `http://${ip}:${actualPort}`);
+  const httpsUrls = () => (actualHttpsPort ? hosts().map((ip) => `https://${ip}:${actualHttpsPort}`) : []);
+  addresses = () => ({ urls: urls(), httpsUrls: httpsUrls() });
+
   return {
     port: actualPort,
     httpsPort: actualHttpsPort,
     passcode: config.passcode,
     dataDir,
     get urls() {
-      return hosts().map((ip) => `http://${ip}:${actualPort}`);
+      return urls();
     },
     get httpsUrls() {
-      return actualHttpsPort ? hosts().map((ip) => `https://${ip}:${actualHttpsPort}`) : [];
+      return httpsUrls();
     },
     async close() {
       api.hub.close();
@@ -275,6 +286,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log('');
   console.log('  Performers open one of these on the same Wi-Fi:');
   for (const url of running.urls) console.log(`    ${url}`);
+  console.log(`  QR code for them to scan: http://localhost:${running.port}/join`);
   if (running.httpsUrls.length) {
     console.log('');
     console.log('  For MIDI controllers on other devices (accept the certificate once):');

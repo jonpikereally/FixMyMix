@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FixMyMix · Join</title>
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <main class="wrap narrow join">
+    <div class="topbar">
+      <div class="grow">
+        <h1 id="title">FixMyMix</h1>
+        <p class="muted small sub">Scan to join · same Wi-Fi as the desk</p>
+      </div>
+      <a class="ghost btn-link" href="/admin">Admin</a>
+    </div>
+    <div id="qrCard" class="qr-card">
+      <div id="qr" class="qr" aria-label="QR code with the FixMyMix address"></div>
+      <div id="url" class="qr-url">Loading…</div>
+    </div>
+    <div id="others" class="row"></div>
+    <p class="muted small">Point the phone's camera at the code and tap the link it shows. If nothing appears, type the address above into the browser.</p>
+  </main>
+  <script type="module" src="/js/join.js"></script>
+</body>
+</html>

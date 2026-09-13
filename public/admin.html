@@ -17,6 +17,7 @@
         <h1 id="title">FixMyMix</h1>
         <p class="muted small sub"><span id="status" class="status-dot"></span><span id="subtitle">Admin</span></p>
       </div>
+      <a id="qrLink" class="ghost btn-link hidden" href="/join" target="_blank" rel="noopener" title="QR code for performers">QR</a>
       <span id="pendingPill" class="pill">0</span>
       <button id="tabBoard" class="primary hidden" type="button">Board</button>
       <button id="tabSetup" class="ghost hidden" type="button">Setup</button>
@@ -27,7 +28,7 @@
 
     <section id="login" class="card narrow hidden">
       <h2>Admin passcode</h2>
-      <p class="muted small">It's printed in the terminal where FixMyMix is running.</p>
+      <p class="muted small">Shown in the FixMyMix menu, or the terminal where it's running.</p>
       <form id="loginForm">
         <label for="passcode">Passcode</label>
         <input id="passcode" type="password" inputmode="numeric" autocomplete="off" autofocus>

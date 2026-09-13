@@ -15,7 +15,7 @@ const ui = {
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
   allowMessages: $('allowMessages'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'),
-  adminMidiPanel: $('adminMidiPanel'),
+  adminMidiPanel: $('adminMidiPanel'), qrLink: $('qrLink'),
 };
 
 let state = null;
@@ -347,6 +347,7 @@ function render() {
   ui.tabBoard.classList.toggle('hidden', !admin);
   ui.tabSetup.classList.toggle('hidden', !admin);
   ui.logout.classList.toggle('hidden', !admin);
+  ui.qrLink.classList.toggle('hidden', !admin);
   ui.board.classList.toggle('hidden', !admin || view !== 'board');
   ui.setup.classList.toggle('hidden', !admin || view !== 'setup');
   ui.tabBoard.className = view === 'board' ? 'primary' : 'ghost';
