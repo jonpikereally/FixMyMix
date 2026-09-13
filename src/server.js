@@ -211,6 +211,23 @@ function listen(server, port, host) {
   });
 }
 
+// Other stage tools (AbleSet, mixer remotes) like port 8080 too. Rather than
+// refuse to start, walk up to the next free port; every address the app shows
+// carries the real port, so nothing else needs to know.
+async function listenNearby(server, port, host, log) {
+  for (let candidate = port; candidate < port + 10; candidate++) {
+    try {
+      await listen(server, candidate, host);
+      if (candidate !== port) log(`Port ${port} is in use; using ${candidate} instead.`);
+      return candidate;
+    } catch (error) {
+      if (error.code !== 'EADDRINUSE' || candidate === port + 9) throw error;
+      server.removeAllListeners('error');
+    }
+  }
+  throw new Error('unreachable');
+}
+
 /**
  * Starts the LAN server. Resolves once it is listening. If data/key.pem and
  * data/cert.pem exist (see `npm run cert`) an https listener is started too.
@@ -234,7 +251,7 @@ export async function start({
   let addresses = () => ({ urls: [], httpsUrls: [] });
   const listener = createRequestListener({ api, log, info: () => addresses() });
   const server = http.createServer(listener);
-  await listen(server, port, host);
+  await listenNearby(server, port, host, log);
 
   const tls = loadTls(dataDir);
   let secure = null;
