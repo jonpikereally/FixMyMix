@@ -13,7 +13,7 @@
     "dev": "node --watch src/server.js",
     "test": "node --test test/*.test.js",
     "app": "electron .",
-    "app:package": "electron-packager . FixMyMix --platform=darwin --out=desktop/dist --overwrite --icon=desktop/icon --app-bundle-id=com.rehearsaltool.fixmymix --app-category-type=public.app-category.music --extend-info=desktop/Info.plist --prune=true --ignore='^/(test|data|desktop/dist|\\.github|\\.claude)($|/)'",
+    "app:package": "electron-packager . FixMyMix --platform=darwin --out=\"${FIXMYMIX_APP_OUT:-desktop/dist}\" --overwrite --icon=desktop/icon --app-bundle-id=com.rehearsaltool.fixmymix --app-category-type=public.app-category.music --extend-info=desktop/Info.plist --prune=true --ignore='^/(test|data|desktop/dist|\\.github|\\.claude)($|/)'",
     "icons": "node desktop/scripts/icons.mjs",
     "cert": "node scripts/cert.mjs"
   },
