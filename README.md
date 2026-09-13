@@ -18,7 +18,40 @@ The first mode is **Mix mode**: performers ask the engineer for more or less of 
 
 ## Running it
 
-Requires Node.js 20 or newer. No npm dependencies — nothing to install, nothing to fetch at showtime.
+Two ways to run the same server. Neither needs internet once it's going.
+
+### Menu-bar app (Mac)
+
+A tray icon that runs the server and shows the address and passcode:
+
+```
+FixMyMix is running
+Performers open (click to copy):
+  http://192.168.1.23:8080
+Admin passcode: 482913
+Open admin board
+Open stage view
+Stop server
+Start at login
+Quit FixMyMix
+```
+
+Build it once on the Mac you'll use at shows:
+
+```sh
+git clone https://github.com/jonpikereally/FixMyMix.git
+cd FixMyMix
+npm install
+npm run app:package
+```
+
+That produces `desktop/dist/FixMyMix-darwin-<arch>/FixMyMix.app`; drag it to Applications. It's a menu-bar-only app (no Dock icon) that bundles its own copy of Node, so the show Mac needs nothing else installed. It stores its state under `~/Library/Application Support/FixMyMix/`. `npm run app` runs it unpackaged for development.
+
+The app isn't code-signed, so the first launch needs a right-click → Open (or System Settings → Privacy & Security → Open Anyway).
+
+### From the terminal
+
+Requires Node.js 20 or newer. The server itself has no npm dependencies.
 
 ```sh
 git clone https://github.com/jonpikereally/FixMyMix.git
@@ -45,10 +78,10 @@ The terminal prints the LAN address(es) and the admin passcode:
 | --- | --- | --- |
 | `PORT` | `8080` | Port to listen on |
 | `HOST` | `0.0.0.0` | Interface to bind |
-| `ADMIN_PASSCODE` | random 6 digits, persisted | Admin passcode; set it to keep the same one across restarts |
+| `ADMIN_PASSCODE` | random 6 digits, persisted | Admin passcode; set it to choose your own |
 | `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests) and `config.json` (passcode, session secret) live |
 
-State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins.
+State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
 
 ## Development
 
@@ -60,11 +93,16 @@ npm test       # state-machine tests (node --test)
 Layout:
 
 ```
-src/server.js     HTTP + SSE server, admin auth, persistence, security headers
-src/state.js      Show state and the request rules (pure, tested)
+src/state.js      Show state and the request rules (pure)
+src/api.js        The API routes and SSE hub, independent of transport
+src/auth.js       Passcode check: Web Crypto HMAC, constant-time compare
+src/server.js     Node HTTP adapter, static files, persistence, security headers
 public/           Static app: landing, stage and admin pages, no build step
-test/             node:test suite for src/state.js
+desktop/          Menu-bar app (Electron): tray menu, icons, packaging plist
+test/             node:test suites for state, api/auth and the tray menu
 ```
+
+`npm run icons` regenerates the tray and app icons from `desktop/scripts/icons.mjs` (a dependency-free PNG/ICNS writer), so there are no binary assets to maintain by hand.
 
 ## Security notes
 
