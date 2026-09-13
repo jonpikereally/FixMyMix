@@ -167,7 +167,7 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 }
 .channel .name { font-size: 1.25rem; font-weight: 700; word-break: break-word; }
 .channel .state { font-size: 0.9rem; color: var(--muted); margin-top: 4px; min-height: 1.2em; }
-.channel .state .cancel {
+.state .cancel {
   min-height: 0;
   padding: 2px 8px;
   margin-left: 8px;
@@ -317,7 +317,58 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .setting input { width: 24px; height: 24px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
 .setting span span { display: block; margin-top: 2px; }
 .channel.done { cursor: pointer; }
-.channel .state .ok { border-color: var(--done); color: var(--done); }
+.state .ok { border-color: var(--done); color: var(--done); }
 
 /* Admin: add to everyone */
 .everyone { border: 1px dashed var(--line); border-radius: 12px; padding: 4px 12px 8px; margin-bottom: 14px; }
+
+.setting-group { border: 0; padding: 0; margin: 14px 0 0; }
+.setting-group legend { padding: 0; color: var(--muted); font-size: 0.9rem; }
+
+/* Stage box layout */
+.boxes { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 12px; }
+.box {
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  min-height: 210px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.box .half {
+  border-radius: 0;
+  min-height: 64px;
+  font-size: 1.7rem;
+  font-weight: 800;
+  position: relative;
+  transition: filter 120ms ease;
+}
+.box .half.up { background: #3e2414; color: var(--more); }
+.box .half.down { background: #14333d; color: var(--less); }
+.box .half.active { filter: brightness(1.45); }
+.box .half .count {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--pending);
+  color: #2a1d00;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 24px;
+  padding: 0 6px;
+}
+.box .middle { padding: 8px 8px; text-align: center; }
+.box .middle .name { font-size: 1.1rem; font-weight: 700; word-break: break-word; }
+.box .middle .state { font-size: 0.85rem; color: var(--muted); margin-top: 2px; min-height: 1.2em; }
+.box .middle .state .cancel { margin-left: 6px; }
+.box.pending { border-color: var(--pending); }
+.box.pending .middle { background: #221d10; }
+.box.pending .middle .state { color: var(--pending); font-weight: 600; }
+.box.done { border-color: var(--done); cursor: pointer; animation: pop 400ms ease; }
+.box.done .middle { background: #12301d; }
+.box.done .middle .state { color: var(--done); font-weight: 700; }
