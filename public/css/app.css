@@ -439,3 +439,17 @@ body.has-composer { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
 .request .label.quote { font-weight: 600; font-style: italic; }
 .outgoing { padding: 6px 4px; font-size: 0.9rem; border-top: 1px dashed var(--line); margin-top: 4px; }
 .outgoing .quote { font-style: italic; }
+
+/* MIDI */
+.midi-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.midi-row .midi-label strong { display: block; }
+.midi-row .midi-binding { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; min-width: 7em; text-align: right; }
+.midi-row.learning { background: #1c2b45; border-radius: 10px; padding-left: 8px; padding-right: 8px; }
+.midi-row.learning .midi-binding { color: var(--accent); font-weight: 600; }
+.warn { color: var(--danger); }
+.channel.cursor, .box.cursor, .request.cursor { outline: 3px solid var(--accent); outline-offset: 2px; }
+.state .armed { color: var(--accent); font-weight: 700; }
+@media (max-width: 420px) {
+  .midi-row { grid-template-columns: 1fr auto; }
+  .midi-row .midi-binding { grid-column: 1 / -1; text-align: left; }
+}

@@ -15,10 +15,16 @@ export function buildMenu(state, actions) {
     for (const url of state.urls) {
       items.push({ label: url, toolTip: 'Copy address', click: () => actions.copy(url) });
     }
+    for (const url of state.httpsUrls ?? []) {
+      items.push({ label: `${url}  (MIDI)`, toolTip: 'Copy https address — for MIDI controllers on other devices', click: () => actions.copy(url) });
+    }
     items.push({ label: `Admin passcode: ${state.passcode}`, toolTip: 'Copy passcode', click: () => actions.copy(state.passcode) });
     items.push({ type: 'separator' });
     items.push({ label: 'Open admin board', click: () => actions.open(`${localUrl}/admin`) });
     items.push({ label: 'Open stage view', click: () => actions.open(`${localUrl}/stage`) });
+    if (!(state.httpsUrls ?? []).length) {
+      items.push({ label: 'Set up HTTPS (for MIDI on other devices)…', click: () => actions.setupHttps() });
+    }
   }
 
   items.push({ type: 'separator' });

@@ -2,6 +2,7 @@
 // from the terminal; the menu-bar app in desktop/ calls start() directly.
 
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -10,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { createApi, errorResponse, ApiError } from './api.js';
 import { createAuth, parseCookies, randomPasscode, randomSecret } from './auth.js';
+import { loadTls } from './tls.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -198,12 +200,21 @@ export function lanAddresses() {
 // ---------------------------------------------------------------------------
 // Startup
 
+function listen(server, port, host) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, resolve);
+  });
+}
+
 /**
- * Starts the LAN server. Resolves once it is listening.
- * @returns {Promise<{ port: number, urls: string[], passcode: string, close: () => Promise<void> }>}
+ * Starts the LAN server. Resolves once it is listening. If data/key.pem and
+ * data/cert.pem exist (see `npm run cert`) an https listener is started too.
+ * @returns {Promise<{ port: number, httpsPort: number|null, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
  */
 export async function start({
   port = Number(process.env.PORT) || 8080,
+  httpsPort = Number(process.env.HTTPS_PORT) || 8443,
   host = process.env.HOST || '0.0.0.0',
   dataDir = process.env.FIXMYMIX_DATA_DIR || path.join(ROOT, 'data'),
   passcode = process.env.ADMIN_PASSCODE,
@@ -214,29 +225,44 @@ export async function start({
   if (!store.members.length) store.quickSetup(4, 4);
   const persister = createPersister(store, dataDir, log);
   const api = createApi({ store, auth: createAuth(config) });
-  const server = http.createServer(createRequestListener({ api, log }));
+  const listener = createRequestListener({ api, log });
+  const server = http.createServer(listener);
+  await listen(server, port, host);
 
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, host, resolve);
-  });
+  const tls = loadTls(dataDir);
+  let secure = null;
+  if (tls) {
+    secure = https.createServer(tls, listener);
+    try {
+      await listen(secure, httpsPort, host);
+    } catch (error) {
+      log(`Not serving https: ${error.message}`);
+      secure = null;
+    }
+  }
 
   const actualPort = server.address().port;
-  const urls = () => {
+  const actualHttpsPort = secure?.address().port ?? null;
+  const hosts = () => {
     const ips = lanAddresses();
-    return (ips.length ? ips : ['localhost']).map((ip) => `http://${ip}:${actualPort}`);
+    return ips.length ? ips : ['localhost'];
   };
 
   return {
     port: actualPort,
+    httpsPort: actualHttpsPort,
     passcode: config.passcode,
+    dataDir,
     get urls() {
-      return urls();
+      return hosts().map((ip) => `http://${ip}:${actualPort}`);
+    },
+    get httpsUrls() {
+      return actualHttpsPort ? hosts().map((ip) => `https://${ip}:${actualHttpsPort}`) : [];
     },
     async close() {
       api.hub.close();
       persister.stop();
-      await new Promise((resolve) => server.close(resolve));
+      await Promise.all([server, secure].filter(Boolean).map((s) => new Promise((resolve) => s.close(resolve))));
       await persister.flush();
     },
   };
@@ -249,6 +275,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log('');
   console.log('  Performers open one of these on the same Wi-Fi:');
   for (const url of running.urls) console.log(`    ${url}`);
+  if (running.httpsUrls.length) {
+    console.log('');
+    console.log('  For MIDI controllers on other devices (accept the certificate once):');
+    for (const url of running.httpsUrls) console.log(`    ${url}`);
+  } else {
+    console.log('');
+    console.log('  MIDI controllers on other devices need https: run `npm run cert` and restart.');
+  }
   console.log('');
   console.log(`  Admin passcode: ${running.passcode}`);
   console.log('  (Set ADMIN_PASSCODE to choose your own.)');

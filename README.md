@@ -16,6 +16,10 @@ The first mode is **Mix mode**: performers ask the engineer for more or less of 
 - **Stage (`/stage`)** — a performer picks their name once (remembered on the device) and gets one big row per channel with **−** and **+**. Tapping sends a request; the row turns amber with *Sent*. Tapping again pushes harder (×2, ×3…), tapping the other direction swaps it, and *cancel* withdraws it. When the engineer marks it done, the row turns green with **Done ✓** and the phone vibrates. The ⚙ settings on the stage page (saved per device) offer **Auto-dismiss confirmations** (on: the green row fades after 8 s; off: it stays until the performer taps it) and a **Layout** choice: *Rows* (one line per channel with − and +) or *Boxes* (a box per channel — tap the top half for more, the bottom half for less).
 - The admin Setup tab also has **Add a channel to every member**, which appends one channel (e.g. *Click*) to everyone who doesn't already have it.
 - **Messages** — off by default; the admin turns on **Allow messages** in Setup. Performers then get a text field at the bottom of the stage page to message the desk; each message shows on the board in their card with a *Done* button, and flips to **Seen ✓** on their device (following the auto-dismiss setting). The desk gets a composer at the bottom of the board to message one performer or everyone; those appear at the top of the performer's screen with a **Got it** button, and the board shows who has read them.
+- **MIDI controllers** — both pages can *MIDI learn* five actions (⚙ on the stage page, Setup on the admin page), per device: a note, a CC (fires when it crosses 64, so a 0/127 foot switch fires once per press) or a program change.
+  - Stage: *next* / *previous* move a highlight through the channels, *up* / *down* arm more or less on it, *confirm* sends — so a slip of the foot doesn't fire a request. With nothing armed, *confirm* answers a desk message or clears a green confirmation.
+  - Admin: *next* / *previous* step through pending items, *up* / *down* jump between members, *confirm* marks the highlighted one done.
+  - Browsers only expose Web MIDI on **secure pages** (https or `localhost`), and **Safari has none at all** — so no MIDI on iPhone/iPad. On the Mac running FixMyMix, open `http://localhost:8080` and it just works. For a stage laptop or Android device, turn on HTTPS: `npm run cert` (or the menu-bar item *Set up HTTPS*) creates a self-signed certificate and the server also listens on `https://<address>:8443`; each device accepts the certificate once (Advanced → Proceed). Chrome alternatively lets you mark the http address as secure at `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
 - Members and channels can carry an **icon** (🎤 🎸 🎻 🥁 🎹 🎵 🎶 🎺 🎷 🪘 🎙 🎧 🔊 🎛 ✨), shown on the stage page and the board. Icons are guessed from the name as you type (*Kick* → 🥁) and can be picked explicitly in the roster editor. They're emoji, so nothing is downloaded.
 - Everything is pushed live over Server-Sent Events with a polling fallback, so a phone that wakes from sleep catches up straight away.
 
@@ -84,7 +88,8 @@ The admin board is just a web page too, so it can run on an iPad (or a phone, or
 | `PORT` | `8080` | Port to listen on |
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `ADMIN_PASSCODE` | random 6 digits, persisted | Admin passcode; set it to choose your own |
-| `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests) and `config.json` (passcode, session secret) live |
+| `HTTPS_PORT` | `8443` | Port for https, used only when `data/key.pem` and `data/cert.pem` exist (`npm run cert`) |
+| `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests, messages), `config.json` (passcode, session secret) and the optional certificate live |
 
 State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
 
@@ -101,8 +106,10 @@ Layout:
 src/state.js      Show state and the request rules (pure)
 src/api.js        The API routes and SSE hub, independent of transport
 src/auth.js       Passcode check: Web Crypto HMAC, constant-time compare
-src/server.js     Node HTTP adapter, static files, persistence, security headers
+src/server.js     Node HTTP(S) adapter, static files, persistence, security headers
+src/tls.js        Optional self-signed certificate (needed for Web MIDI off-host)
 public/           Static app: landing, stage and admin pages, no build step
+                  (js/midi.js: Web MIDI learn shared by both pages)
 desktop/          Menu-bar app (Electron): tray menu, icons, packaging plist
 test/             node:test suites for state, api/auth and the tray menu
 ```

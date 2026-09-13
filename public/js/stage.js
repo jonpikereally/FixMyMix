@@ -1,5 +1,6 @@
 import { watchState, post, toast, el, vibrate } from './net.js';
 import { glyph } from './icons.js';
+import { createMidi, renderMidiPanel } from './midi.js';
 
 const withGlyph = (item) => (glyph(item.icon) ? `${glyph(item.icon)} ${item.name}` : item.name);
 
@@ -28,6 +29,7 @@ const ui = {
   myMessages: document.getElementById('myMessages'),
   composer: document.getElementById('composer'),
   messageText: document.getElementById('messageText'),
+  midiPanel: document.getElementById('midiPanel'),
 };
 
 let state = null;
@@ -47,6 +49,54 @@ const messageConfirmations = new Map();
 const seenDeskMessages = new Set();
 
 const confirmUntil = () => (settings.autoDismiss ? Date.now() + CONFIRM_MS : Infinity);
+
+// MIDI drives a highlighted channel: next/prev move it, up/down arm a
+// direction, confirm sends. Only drawn once a controller is bound.
+let cursor = 0;
+let armed = null;
+const MIDI_LABELS = {
+  up: { title: 'Up', hint: 'Arm “more” on the highlighted channel' },
+  down: { title: 'Down', hint: 'Arm “less” on the highlighted channel' },
+  next: { title: 'Next channel', hint: 'Move the highlight down' },
+  prev: { title: 'Previous channel', hint: 'Move the highlight up' },
+  confirm: { title: 'Confirm / send', hint: 'Send what is armed, or answer a message' },
+};
+const midi = createMidi({
+  actions: Object.keys(MIDI_LABELS),
+  storageKey: 'fixmymix.midi.stage',
+  onAction: (action) => midiAction(action),
+  onChange: () => render(),
+});
+
+function midiAction(action) {
+  const member = currentMember();
+  if (!member || !member.channels.length) return;
+  const count = member.channels.length;
+  if (action === 'next' || action === 'prev') {
+    cursor = (cursor + (action === 'next' ? 1 : count - 1)) % count;
+    armed = null;
+  } else if (action === 'up' || action === 'down') {
+    armed = action === 'up' ? 'more' : 'less';
+  } else if (action === 'confirm') {
+    const channel = member.channels[cursor];
+    const fromDesk = state.messages.find((m) => m.memberId === member.id && m.from === 'admin' && m.status === 'pending');
+    if (armed && channel) {
+      const direction = armed;
+      armed = null;
+      confirmations.delete(channel.id);
+      act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }));
+    } else if (fromDesk) {
+      act(() => post('/api/messages/ack', { memberId: member.id, messageId: fromDesk.id }));
+    } else if (channel && confirmations.has(channel.id)) {
+      confirmations.delete(channel.id);
+    } else {
+      confirmations.clear();
+      messageConfirmations.clear();
+    }
+  }
+  render();
+  document.querySelector('.cursor')?.scrollIntoView({ block: 'nearest' });
+}
 
 function readStored(key, fallback) {
   try {
@@ -213,7 +263,11 @@ function channelView(member, channel, pending, confirmed) {
     act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }));
   };
   const badge = (direction) => (pending?.direction === direction ? el('span', { class: 'count', text: `×${pending.count}` }) : null);
-  const stateClass = showDone ? ' done' : pending ? ' pending' : '';
+  const isCursor = midi.active() && member.channels[cursor] === channel;
+  if (isCursor && armed) {
+    stateLine.replaceChildren(el('span', { class: 'armed', text: `${armed === 'more' ? '▲ More' : '▼ Less'} armed — confirm to send` }));
+  }
+  const stateClass = `${showDone ? ' done' : pending ? ' pending' : ''}${isCursor ? ' cursor' : ''}`;
   const label = (direction) => `${direction === 'more' ? 'More' : 'Less'} ${channel.name}`;
   return { channel, showDone, stateLine, send, badge, stateClass, label };
 }
@@ -252,6 +306,7 @@ function renderChannels(member) {
   const pendingByChannel = new Map(
     state.requests.filter((r) => r.status === 'pending' && r.memberId === member.id).map((r) => [r.channelId, r]),
   );
+  if (cursor >= member.channels.length) cursor = 0;
   const views = member.channels.map((channel) => channelView(member, channel, pendingByChannel.get(channel.id), confirmations.get(channel.id)));
   ui.channels.className = settings.layout === 'boxes' ? 'boxes' : '';
   // Rows read best in a narrow column; boxes want the whole width on a tablet.
@@ -272,6 +327,7 @@ function render() {
   ui.title.textContent = state.show.name;
   document.title = `${state.show.name} · Stage`;
   ui.settings.classList.toggle('hidden', !settingsOpen);
+  if (settingsOpen) renderMidiPanel(ui.midiPanel, midi, MIDI_LABELS);
   ui.autoDismiss.checked = settings.autoDismiss;
   for (const input of ui.layoutInputs) input.checked = input.value === settings.layout;
   const member = currentMember();
@@ -331,6 +387,10 @@ for (const input of ui.layoutInputs) {
     render();
   });
 }
+
+// A device with bindings saved is a MIDI device: connect on load (the browser
+// remembers the permission), so the controller works without opening settings.
+if (Object.keys(midi.bindings()).length) midi.connect();
 
 watchState({
   onState: (snapshot) => {
