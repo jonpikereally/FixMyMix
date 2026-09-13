@@ -17,12 +17,38 @@
       </div>
       <a class="ghost btn-link" href="/admin">Admin</a>
     </div>
+    <div class="seg" role="tablist" aria-label="Which app">
+      <button type="button" data-app="fixmymix" role="tab">FixMyMix</button>
+      <button type="button" data-app="ableset" role="tab">AbleSet</button>
+      <button type="button" data-app="custom" role="tab">Any address</button>
+    </div>
+    <div id="abletOptions" class="card options hidden">
+      <p class="muted small">AbleSet's web app lives on the computer running Ableton. Pick that computer's address and the port AbleSet shows in its window.</p>
+      <div class="row">
+        <div class="grow">
+          <label for="abletHost">Computer</label>
+          <select id="abletHost"></select>
+        </div>
+        <div>
+          <label for="abletPort">Port</label>
+          <input id="abletPort" type="number" min="1" max="65535" value="8080" class="num">
+        </div>
+      </div>
+      <div id="abletHostCustomWrap" class="hidden">
+        <label for="abletHostCustom">Address of the Ableton computer</label>
+        <input id="abletHostCustom" type="text" placeholder="e.g. 192.168.1.40" autocomplete="off">
+      </div>
+    </div>
+    <div id="customOptions" class="card options hidden">
+      <label for="customUrl">Address to encode</label>
+      <input id="customUrl" type="url" placeholder="https://…" autocomplete="off">
+    </div>
     <div id="qrCard" class="qr-card">
       <div id="qr" class="qr" aria-label="QR code with the FixMyMix address"></div>
       <div id="url" class="qr-url">Loading…</div>
     </div>
     <div id="others" class="row"></div>
-    <p class="muted small">Point the phone's camera at the code and tap the link it shows. If nothing appears, type the address above into the browser.</p>
+    <p id="joinHint" class="muted small">Point the phone's camera at the code and tap the link it shows. If nothing appears, type the address above into the browser.</p>
   </main>
   <script type="module" src="/js/join.js"></script>
 </body>
