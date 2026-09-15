@@ -133,7 +133,7 @@ export function renderMidiPanel(container, midi, labels) {
   if (!state.supported) {
     status = el('p', { class: 'muted small', text: 'This browser has no Web MIDI. Safari (and every browser on iPhone/iPad) cannot do MIDI; use Chrome, Edge or Firefox on a laptop or Android.' });
   } else if (!state.secure) {
-    status = el('p', { class: 'muted small', text: 'Browsers only allow MIDI on a secure page. On the computer running FixMyMix open http://localhost; on another device use the https:// address (menu bar → Set up HTTPS).' });
+    status = el('p', { class: 'muted small', text: 'Browsers only allow MIDI on a secure page. On the computer running FixMyMix open http://localhost; on another laptop use the https:// address shown in the FixMyMix menu (accept the certificate once).' });
   } else if (state.error) {
     status = el('p', { class: 'small warn', text: `MIDI permission refused: ${state.error}` });
   } else if (!state.granted) {

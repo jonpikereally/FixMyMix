@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
-import { createCertificate, removeCertificate } from '../src/tls.js';
 import { buildMenu } from './menu.js';
 import { compareVersions, fetchLatest, download, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
@@ -193,33 +192,6 @@ const actions = {
   async quit() {
     await stopServer();
     app.exit(0);
-  },
-  async turnOffHttps() {
-    try {
-      removeCertificate(dataDir());
-      await stopServer();
-      await startServer();
-      log('HTTPS turned off.');
-    } catch (e) {
-      dialog.showErrorBox('Could not turn off HTTPS', e.message);
-    }
-  },
-  async setupHttps() {
-    try {
-      await createCertificate(dataDir());
-      await stopServer();
-      await startServer();
-      const urls = running?.httpsUrls ?? [];
-      dialog.showMessageBox({
-        type: 'info',
-        message: urls.length ? 'HTTPS is on.' : 'Certificate created, but https did not start.',
-        detail: urls.length
-          ? `Devices with a MIDI controller open:\n${urls.join('\n')}\n\nThe first time, the browser warns about the certificate: choose Advanced → Proceed (Safari: Show Details → visit this website). Phones keep using the plain http:// address from the QR code.`
-          : 'Check the log for the reason.',
-      });
-    } catch (e) {
-      dialog.showErrorBox('Could not set up HTTPS', e.message);
-    }
   },
 };
 

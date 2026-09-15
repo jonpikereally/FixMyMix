@@ -296,16 +296,19 @@ async function listenNearby(server, port, host, log) {
 }
 
 /**
- * Starts the LAN server. Resolves once it is listening. Plain http by
- * default. With data/key.pem and data/cert.pem present (`npm run cert`, or
- * "Set up HTTPS" in the menu-bar app) the same port also answers https and,
- * when the http port is 80, port 443 is served as well.
+ * Starts the LAN server. Resolves once it is listening. The one port answers
+ * both http and https: a self-signed certificate is created on first start
+ * (openssl), so a phone that insists on https:// still reaches the app —
+ * behind Safari's one-time certificate prompt — instead of a dead end, and
+ * laptops with MIDI controllers get the secure page they need. Port 443 is
+ * deliberately not served: on port 80 that leaves the phone's https attempt
+ * with nothing to connect to, which is what it silently falls back from.
  * @returns {Promise<{ port: number, httpsPort: number|null, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
  */
 export async function start({
   port = Number(process.env.PORT) || DEFAULT_PORT,
   host = process.env.HOST || '0.0.0.0',
-  autoCert = process.env.FIXMYMIX_AUTO_CERT === '1',
+  autoCert = process.env.FIXMYMIX_AUTO_CERT !== '0',
   dataDir = process.env.FIXMYMIX_DATA_DIR || path.join(ROOT, 'data'),
   passcode = process.env.ADMIN_PASSCODE,
   log = console.log,
@@ -342,28 +345,15 @@ export async function start({
   await listenNearby(server.front, port, host, log);
   const actualPort = server.front.address().port;
 
-  // With a certificate and the standard http port, also take the standard
-  // https port so https://<address> works without a port number.
-  let secure443 = null;
-  if (tls && actualPort === 80) {
-    secure443 = https.createServer(tls, listener);
-    try {
-      await listen(secure443, 443, host);
-    } catch (error) {
-      log(`Not serving https on 443: ${error.message}`);
-      secure443 = null;
-    }
-  }
-
   const hosts = () => {
     const ips = lanAddresses();
     return ips.length ? ips : ['localhost'];
   };
-  const withPort = (scheme, ip, p) => `${scheme}://${ip}${(scheme === 'http' && p === 80) || (scheme === 'https' && p === 443) ? '' : `:${p}`}`;
-  const httpsPort = server.hasTls ? (secure443 ? 443 : actualPort) : null;
+  const httpsPort = server.hasTls ? actualPort : null;
 
-  const urls = () => hosts().map((ip) => withPort('http', ip, actualPort));
-  const httpsUrls = () => (httpsPort ? hosts().map((ip) => withPort('https', ip, httpsPort)) : []);
+  const urls = () => hosts().map((ip) => `http://${ip}${actualPort === 80 ? '' : `:${actualPort}`}`);
+  // https keeps the explicit port even on 80: https://host would mean 443.
+  const httpsUrls = () => (httpsPort ? hosts().map((ip) => `https://${ip}:${httpsPort}`) : []);
   addresses = () => ({ urls: urls(), httpsUrls: httpsUrls() });
 
   return {
@@ -383,7 +373,7 @@ export async function start({
     async close() {
       api.hub.close();
       persister.stop();
-      await Promise.all([server.front, secure443].filter(Boolean).map((s) => new Promise((resolve) => s.close(resolve))));
+      await new Promise((resolve) => server.front.close(resolve));
       await persister.flush();
     },
   };
@@ -399,7 +389,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`  QR code for them to scan: http://localhost${running.port === 80 ? '' : `:${running.port}`}/join`);
   if (running.httpsUrls.length) {
     console.log('');
-    console.log('  https:// is on for MIDI controllers on other devices (accept the certificate once):');
+    console.log('  For MIDI controllers on other laptops (accept the certificate once):');
     for (const url of running.httpsUrls) console.log(`    ${url}`);
   }
   console.log('');
