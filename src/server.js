@@ -233,7 +233,7 @@ function createDualServer(listener, tls) {
   const plain = http.createServer(listener);
   const secure = tls ? https.createServer(tls, listener) : null;
   const sockets = new Set();
-  const front = net.createServer((socket) => {
+  const onConnection = (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
     socket.setTimeout(10_000, () => socket.destroy());
@@ -258,8 +258,14 @@ function createDualServer(listener, tls) {
       process.nextTick(() => socket.resume());
     });
     socket.on('error', () => {});
-  });
+  };
+  const front = net.createServer(onConnection);
+  // A second, IPv6-only listener on the same port so "localhost" (which
+  // macOS resolves to ::1 first) is answered directly. Best effort: see
+  // listenLoopback6().
+  const front6 = net.createServer(onConnection);
   front.on('close', () => {
+    front6.close();
     plain.close();
     secure?.close();
   });
@@ -268,7 +274,7 @@ function createDualServer(listener, tls) {
     for (const socket of sockets) socket.destroy();
     sockets.clear();
   };
-  return { front, plain, secure, hasTls: Boolean(secure), destroyAll };
+  return { front, front6, plain, secure, hasTls: Boolean(secure), destroyAll };
 }
 
 export const DEFAULT_PORT = 80;
@@ -287,34 +293,45 @@ function candidates(port) {
   return list;
 }
 
-// "localhost" resolves to ::1 first on macOS, so an IPv4-only listener makes
-// every local request try IPv6, fail, and fall back — slow and occasionally
-// flaky. Binding "::" takes IPv6 and IPv4 together; if IPv6 is off, fall
-// back to IPv4 alone.
-function hostsToTry(host) {
-  return host === '0.0.0.0' ? ['::', '0.0.0.0'] : [host];
-}
-
+// The main listener is IPv4 only, on purpose. A dual-stack "::" bind looks
+// tempting, but on macOS it succeeds even while another program (AbleSet)
+// holds 0.0.0.0 on the same port — so the app would believe it owned port
+// 80, advertise http://192.168.x.x, and every phone would land on AbleSet.
+// Binding 0.0.0.0 is what reliably reports "in use".
 async function listenNearby(server, port, host, log) {
   const ports = candidates(port);
   for (const [i, candidate] of ports.entries()) {
-    let lastError = null;
-    for (const address of hostsToTry(host)) {
-      try {
-        await listen(server, candidate, address);
-        if (candidate !== port) log(`Port ${port} is not available; using ${candidate} instead.`);
-        return candidate;
-      } catch (error) {
-        server.removeAllListeners('error');
-        lastError = error;
-        // A busy or forbidden port is the same on every address: move on.
-        if (error.code === 'EADDRINUSE' || error.code === 'EACCES') break;
-      }
+    try {
+      await listen(server, candidate, host);
+      if (candidate !== port) log(`Port ${port} is not available; using ${candidate} instead.`);
+      return candidate;
+    } catch (error) {
+      const busy = error.code === 'EADDRINUSE' || error.code === 'EACCES';
+      if (!busy || i === ports.length - 1) throw error;
+      server.removeAllListeners('error');
     }
-    const busy = lastError.code === 'EADDRINUSE' || lastError.code === 'EACCES';
-    if (!busy || i === ports.length - 1) throw lastError;
   }
   throw new Error('unreachable');
+}
+
+// "localhost" resolves to ::1 first on macOS; without an IPv6 listener every
+// local request tries that, fails, and falls back to 127.0.0.1 — slow and
+// occasionally lossy. So add an IPv6-only listener on the same port, bound to
+// the loopback only (never the wildcard, see above). Skipped quietly where
+// IPv6 is off or something else has ::1 on that port.
+async function listenLoopback6(server, port) {
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ port, host: '::1', ipv6Only: true }, resolve);
+    });
+    server.removeAllListeners('error');
+    server.on('error', () => {});
+    return true;
+  } catch {
+    server.removeAllListeners('error');
+    return false;
+  }
 }
 
 /**
@@ -366,6 +383,7 @@ export async function start({
   const server = createDualServer(listener, tls);
   await listenNearby(server.front, port, host, log);
   const actualPort = server.front.address().port;
+  if (host === '0.0.0.0') await listenLoopback6(server.front6, actualPort);
 
   const hosts = () => {
     const ips = lanAddresses();
