@@ -1,12 +1,17 @@
 const STALE_MS = 40_000;
+const RETRY_DELAYS_MS = [300, 600, 1200, 2400, 3000, 3000, 3000, 3000];
 
 /**
  * Keeps a live view of show state via Server-Sent Events. EventSource
  * reconnects on its own; the watchdog covers the case where the socket goes
  * silent without closing (sleeping phones do this), and the polling fallback
  * covers browsers with EventSource disabled.
+ *
+ * `url` may be a function so the stream can carry who this device is;
+ * call the returned handle's reconnect() when that changes. One-off events
+ * from the server (buzz) arrive through onEvent(name, data).
  */
-export function watchState({ onState, onStatus }) {
+export function watchState({ onState, onStatus, onEvent = () => {}, url = () => '/api/stream' }) {
   let source = null;
   let lastMessage = 0;
   let lastRev = 0;
@@ -14,6 +19,7 @@ export function watchState({ onState, onStatus }) {
 
   const apply = (snapshot) => {
     lastMessage = Date.now();
+    // Presence changes re-send the same rev, so only reject strictly older frames.
     if (snapshot.rev < lastRev) return;
     lastRev = snapshot.rev;
     onState(snapshot);
@@ -21,13 +27,21 @@ export function watchState({ onState, onStatus }) {
 
   const open = () => {
     if (source) source.close();
-    source = new EventSource('/api/stream');
+    source = new EventSource(typeof url === 'function' ? url() : url);
     source.addEventListener('state', (event) => {
       onStatus(true);
       try {
         apply(JSON.parse(event.data));
       } catch (error) {
         console.error('Bad state frame', error);
+      }
+    });
+    source.addEventListener('buzz', (event) => {
+      lastMessage = Date.now();
+      try {
+        onEvent('buzz', JSON.parse(event.data));
+      } catch {
+        onEvent('buzz', {});
       }
     });
     source.onopen = () => {
@@ -70,32 +84,86 @@ export function watchState({ onState, onStatus }) {
     });
   }
 
-  return () => {
-    source?.close();
-    clearInterval(pollTimer);
+  return {
+    reconnect() {
+      if (source) open();
+    },
+    stop() {
+      source?.close();
+      clearInterval(pollTimer);
+    },
   };
 }
 
-export async function post(url, body = {}) {
-  let res;
+function newOpId() {
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return crypto.randomUUID();
   } catch {
-    throw new Error('Cannot reach the FixMyMix server. Are you on the show Wi-Fi?');
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * POSTs JSON. A Wi-Fi blip must not lose a tap, so network failures and 5xx
+ * responses are retried for ~15 s; every attempt carries the same opId and
+ * the server applies it once, so a retry of something that actually landed
+ * is harmless. onRetry fires when the first attempt did not get through.
+ */
+export async function post(url, body = {}, { onRetry = () => {} } = {}) {
+  const payload = JSON.stringify({ opId: newOpId(), ...body });
+  let lastError = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) {
+      onRetry(attempt);
+      await wait(RETRY_DELAYS_MS[attempt - 1]);
+    }
+    let res;
+    try {
+      res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    } catch {
+      lastError = new Error('Cannot reach the FixMyMix server. Are you on the show Wi-Fi?');
+      continue;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
     const error = new Error(data.error || `Request failed (${res.status})`);
     error.code = data.code;
     error.status = res.status;
-    throw error;
+    if (res.status < 500) throw error;
+    lastError = error;
   }
-  return data;
+  throw lastError;
 }
+
+/**
+ * Keeps the screen on while the page is open (a locked phone can't show a
+ * green confirmation). Browsers drop the lock when the tab hides, so it is
+ * re-requested on return. Silently does nothing where unsupported.
+ */
+let wakeLock = null;
+let wakeWanted = false;
+async function acquireWakeLock() {
+  if (!wakeWanted || wakeLock || document.visibilityState !== 'visible') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch {
+    wakeLock = null;
+  }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acquireWakeLock(); });
+export function keepScreenAwake(enabled) {
+  wakeWanted = Boolean(enabled) && 'wakeLock' in navigator;
+  if (!wakeWanted) {
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+    return;
+  }
+  acquireWakeLock();
+}
+export const wakeLockSupported = () => typeof navigator !== 'undefined' && 'wakeLock' in navigator;
 
 let toastTimer = null;
 export function toast(message, { error = false, ms = 2500 } = {}) {

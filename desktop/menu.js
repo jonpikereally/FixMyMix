@@ -10,6 +10,8 @@ export function buildMenu(state, actions) {
   else items.push({ label: 'FixMyMix is stopped', enabled: false });
 
   if (state.running) {
+    const devices = state.devices ?? 0;
+    items.push({ label: `${devices} device${devices === 1 ? '' : 's'} connected`, enabled: false });
     items.push({ type: 'separator' });
     items.push({ label: 'Performers open (click to copy):', enabled: false });
     for (const url of state.urls) {
@@ -36,7 +38,9 @@ export function buildMenu(state, actions) {
     items.push({ label: state.error ? 'Try again' : 'Start server', enabled: !state.starting, click: () => actions.start() });
   }
   items.push({ label: 'Start at login', type: 'checkbox', checked: state.loginItem, click: () => actions.toggleLogin() });
+  items.push({ label: 'Keep Mac awake while running', type: 'checkbox', checked: state.keepAwake !== false, click: () => actions.toggleKeepAwake() });
   items.push({ type: 'separator' });
+  items.push({ label: 'Open log', click: () => actions.openLog() });
   items.push({ label: 'Quit FixMyMix', click: () => actions.quit() });
   return items;
 }
