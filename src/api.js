@@ -79,10 +79,11 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
       const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
       for (const client of clients) if (!memberId || client.memberId === memberId) client.write(chunk);
     },
-    attach(write, { memberId = null } = {}) {
+    attach(write, { memberId = null, end = () => {} } = {}) {
       let detached = false;
       const client = {
         memberId,
+        end,
         write(chunk) {
           try {
             write(chunk);
@@ -111,6 +112,14 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
     close() {
       unsubscribe();
       stopHeartbeat();
+      // End every live stream, or a server close would wait on them forever.
+      for (const client of clients) {
+        try {
+          client.end();
+        } catch {
+          // Already gone.
+        }
+      }
       clients.clear();
       online.clear();
     },
