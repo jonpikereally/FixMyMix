@@ -287,18 +287,32 @@ function candidates(port) {
   return list;
 }
 
+// "localhost" resolves to ::1 first on macOS, so an IPv4-only listener makes
+// every local request try IPv6, fail, and fall back — slow and occasionally
+// flaky. Binding "::" takes IPv6 and IPv4 together; if IPv6 is off, fall
+// back to IPv4 alone.
+function hostsToTry(host) {
+  return host === '0.0.0.0' ? ['::', '0.0.0.0'] : [host];
+}
+
 async function listenNearby(server, port, host, log) {
   const ports = candidates(port);
   for (const [i, candidate] of ports.entries()) {
-    try {
-      await listen(server, candidate, host);
-      if (candidate !== port) log(`Port ${port} is not available; using ${candidate} instead.`);
-      return candidate;
-    } catch (error) {
-      const busy = error.code === 'EADDRINUSE' || error.code === 'EACCES';
-      if (!busy || i === ports.length - 1) throw error;
-      server.removeAllListeners('error');
+    let lastError = null;
+    for (const address of hostsToTry(host)) {
+      try {
+        await listen(server, candidate, address);
+        if (candidate !== port) log(`Port ${port} is not available; using ${candidate} instead.`);
+        return candidate;
+      } catch (error) {
+        server.removeAllListeners('error');
+        lastError = error;
+        // A busy or forbidden port is the same on every address: move on.
+        if (error.code === 'EADDRINUSE' || error.code === 'EACCES') break;
+      }
     }
+    const busy = lastError.code === 'EADDRINUSE' || lastError.code === 'EACCES';
+    if (!busy || i === ports.length - 1) throw lastError;
   }
   throw new Error('unreachable');
 }

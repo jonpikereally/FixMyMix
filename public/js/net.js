@@ -204,6 +204,9 @@ export function ago(timestamp) {
 
 export function vibrate(pattern) {
   try {
+    // Browsers ignore vibrate() before the first tap on the page (and Chrome
+    // logs a warning each time), so don't bother until then.
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     navigator.vibrate?.(pattern);
   } catch {
     // Not supported; the visual confirmation is what matters.

@@ -7,7 +7,10 @@ const withGlyph = (item) => (glyph(item.icon) ? `${glyph(item.icon)} ${item.name
 const MEMBER_KEY = 'fixmymix.memberId';
 const SETTINGS_KEY = 'fixmymix.settings';
 const CONFIRM_MS = 8000;
-const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true };
+const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true, swipe: true };
+// A flick: at least this far, mostly vertical, and quick — slower drags scroll.
+const SWIPE_MIN_PX = 40;
+const SWIPE_MAX_MS = 450;
 const LAYOUTS = new Set(['rows', 'boxes']);
 
 const ui = {
@@ -19,6 +22,7 @@ const ui = {
   settings: document.getElementById('settings'),
   autoDismiss: document.getElementById('autoDismiss'),
   keepAwake: document.getElementById('keepAwake'),
+  swipe: document.getElementById('swipe'),
   keepAwakeHint: document.getElementById('keepAwakeHint'),
   layoutInputs: document.querySelectorAll('input[name="layout"]'),
   offline: document.getElementById('offline'),
@@ -28,6 +32,8 @@ const ui = {
   channels: document.getElementById('channels'),
   hint: document.getElementById('hint'),
   deskMessages: document.getElementById('deskMessages'),
+  buzzOverlay: document.getElementById('buzzOverlay'),
+  buzzMessages: document.getElementById('buzzMessages'),
   myMessages: document.getElementById('myMessages'),
   composer: document.getElementById('composer'),
   messageText: document.getElementById('messageText'),
@@ -77,6 +83,11 @@ function midiAction(action) {
   const member = currentMember();
   if (!member || !member.channels.length) return;
   const count = member.channels.length;
+  if (overlayOpen()) {
+    const buzzed = state.messages.find((m) => m.memberId === member.id && m.from === 'admin' && m.status === 'pending' && m.buzz);
+    if (action === 'confirm' && buzzed) act(() => post('/api/messages/ack', { memberId: member.id, messageId: buzzed.id }));
+    return;
+  }
   if (action === 'next' || action === 'prev') {
     cursor = (cursor + (action === 'next' ? 1 : count - 1)) % count;
     armed = null;
@@ -180,20 +191,27 @@ function renderMessages(member) {
   const mine = state.messages.filter((m) => m.memberId === member.id);
   const now = Date.now();
 
-  // Desk → me: needs a "Got it".
+  // Desk → me: needs a "Got it". A message sent with buzz takes over the
+  // screen (and vibrates harder) until it is dismissed; the rest sit above
+  // the channels.
   const fromDesk = mine.filter((m) => m.from === 'admin' && m.status === 'pending');
-  let buzz = false;
+  let fresh = false;
+  let freshBuzz = false;
   for (const m of fromDesk) {
     if (!seenDeskMessages.has(m.id)) {
       seenDeskMessages.add(m.id);
-      buzz = true;
+      if (m.buzz) freshBuzz = true; else fresh = true;
     }
   }
-  if (buzz) vibrate([200, 80, 200]);
+  if (freshBuzz) buzz({ quiet: true });
+  else if (fresh) vibrate([200, 80, 200]);
+  const gotIt = (m) => el('button', { type: 'button', class: 'done-btn', text: 'Got it', onclick: () => act(() => post('/api/messages/ack', { memberId: member.id, messageId: m.id })) });
   ui.deskMessages.replaceChildren(
-    ...fromDesk.map((m) => messageCard('desk', 'From the desk', m.text,
-      el('button', { type: 'button', class: 'done-btn', text: 'Got it', onclick: () => act(() => post('/api/messages/ack', { memberId: member.id, messageId: m.id })) }))),
+    ...fromDesk.filter((m) => !m.buzz).map((m) => messageCard('desk', 'From the desk', m.text, gotIt(m))),
   );
+  const buzzed = fromDesk.filter((m) => m.buzz);
+  ui.buzzMessages.replaceChildren(...buzzed.map((m) => messageCard('desk buzzed', 'Buzz', m.text, gotIt(m))));
+  setOverlay(buzzed.length > 0);
 
   // Me → desk: Sent, then Seen ✓ once the desk clears it.
   let vibrated = false;
@@ -242,12 +260,12 @@ function renderPicker() {
 
 const HINTS = {
   rows: {
-    auto: 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.',
-    sticky: 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.',
+    auto: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.',
+    sticky: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.',
   },
   boxes: {
-    auto: 'Tap the top of a box for more, the bottom for less. Tap again to push harder. The box turns green when it\'s been done.',
-    sticky: 'Tap the top of a box for more, the bottom for less. Tap again to push harder. The box turns green when it\'s been done; tap it to clear.',
+    auto: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. The box turns green when it\'s been done.',
+    sticky: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. The box turns green when it\'s been done; tap it to clear.',
   },
 };
 
@@ -271,10 +289,7 @@ function channelView(member, channel, pending, confirmed) {
   }
   const send = (direction) => (event) => {
     event.stopPropagation();
-    confirmations.delete(channel.id);
-    act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }, {
-      onRetry: () => { sendingRetry.add(channel.id); render(); },
-    }).finally(() => { if (sendingRetry.delete(channel.id)) render(); }));
+    sendRequest(member, channel, direction);
   };
   const badge = (direction) => (pending?.direction === direction ? el('span', { class: 'count', text: `×${pending.count}` }) : null);
   if (sendingRetry.has(channel.id) && !pending && !showDone) {
@@ -289,10 +304,17 @@ function channelView(member, channel, pending, confirmed) {
   return { channel, showDone, stateLine, send, badge, stateClass, label };
 }
 
+function sendRequest(member, channel, direction) {
+  confirmations.delete(channel.id);
+  act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }, {
+    onRetry: () => { sendingRetry.add(channel.id); render(); },
+  }).finally(() => { if (sendingRetry.delete(channel.id)) render(); }));
+}
+
 function renderRow(view) {
   const tap = (direction, text) =>
     el('button', { type: 'button', class: `tap ${direction}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [text, view.badge(direction)]);
-  const row = el('div', { class: `channel${view.stateClass}` }, [
+  const row = el('div', { class: `channel${view.stateClass}`, 'data-channel': view.channel.id }, [
     el('div', {}, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     tap('less', '−'),
     tap('more', '+'),
@@ -304,7 +326,7 @@ function renderRow(view) {
 function renderBox(view) {
   const half = (direction, arrow, position) =>
     el('button', { type: 'button', class: `half ${position}${view.badge(direction) ? ' active' : ''}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [arrow, view.badge(direction)]);
-  const box = el('div', { class: `box${view.stateClass}` }, [
+  const box = el('div', { class: `box${view.stateClass}`, 'data-channel': view.channel.id }, [
     half('more', '▲', 'up'),
     el('div', { class: 'middle' }, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     half('less', '▼', 'down'),
@@ -347,10 +369,12 @@ function render() {
   if (settingsOpen) renderMidiPanel(ui.midiPanel, midi, MIDI_LABELS);
   ui.autoDismiss.checked = settings.autoDismiss;
   ui.keepAwake.checked = settings.keepAwake;
+  ui.swipe.checked = settings.swipe;
   for (const input of ui.layoutInputs) input.checked = input.value === settings.layout;
   const member = currentMember();
   if (!member) {
     if (memberId) saveMember(null);
+    setOverlay(false);
     renderPicker();
     ui.composer.classList.add('hidden');
     document.body.classList.remove('has-composer');
@@ -386,6 +410,40 @@ ui.autoDismiss.addEventListener('change', () => {
   render();
 });
 
+ui.swipe.addEventListener('change', () => {
+  settings.swipe = ui.swipe.checked;
+  writeStored(SETTINGS_KEY, settings);
+});
+
+// Swipe on a channel row or box: a quick flick up sends "more", down "less".
+let touchStart = null;
+ui.channels.addEventListener('touchstart', (event) => {
+  if (!settings.swipe || overlayOpen() || event.touches.length !== 1) return;
+  const target = event.target.closest('[data-channel]');
+  if (!target) return;
+  const touch = event.touches[0];
+  touchStart = { channelId: target.dataset.channel, x: touch.clientX, y: touch.clientY, at: Date.now() };
+}, { passive: true });
+ui.channels.addEventListener('touchend', (event) => {
+  const start = touchStart;
+  touchStart = null;
+  if (!start || !settings.swipe) return;
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  if (Date.now() - start.at > SWIPE_MAX_MS || Math.abs(dy) < SWIPE_MIN_PX || Math.abs(dy) < Math.abs(dx) * 1.5) return;
+  const member = currentMember();
+  const channel = member?.channels.find((c) => c.id === start.channelId);
+  if (!channel) return;
+  const direction = dy < 0 ? 'more' : 'less';
+  vibrate(30);
+  const element = ui.channels.querySelector(`[data-channel="${channel.id}"]`);
+  element?.classList.add(`swiped-${direction}`);
+  setTimeout(() => element?.classList.remove(`swiped-${direction}`), 350);
+  sendRequest(member, channel, direction);
+}, { passive: true });
+ui.channels.addEventListener('touchcancel', () => { touchStart = null; }, { passive: true });
+
 ui.keepAwake.addEventListener('change', () => {
   settings.keepAwake = ui.keepAwake.checked;
   writeStored(SETTINGS_KEY, settings);
@@ -411,12 +469,28 @@ ui.composer.addEventListener('submit', (event) => {
 
 // The desk's "buzz": vibrate and flash so the whole band can be checked at once.
 let flashTimer = null;
-function buzz() {
+function buzz({ quiet = false } = {}) {
   vibrate([300, 100, 300, 100, 300]);
   document.body.classList.add('flash');
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => document.body.classList.remove('flash'), 1800);
-  toast('The desk is buzzing you 👋');
+  if (!quiet) toast('The desk is buzzing you 👋');
+}
+
+// While a buzzed message is up, the channels (and the rest of the page) are
+// inert: the performer has to dismiss it first.
+function overlayOpen() {
+  return !ui.buzzOverlay.classList.contains('hidden');
+}
+function setOverlay(open) {
+  if (open === overlayOpen()) return;
+  ui.buzzOverlay.classList.toggle('hidden', !open);
+  document.body.classList.toggle('modal', open);
+  for (const node of document.body.children) {
+    if (node === ui.buzzOverlay || node.tagName === 'SCRIPT') continue;
+    if (open) node.setAttribute('inert', ''); else node.removeAttribute('inert');
+  }
+  if (open) ui.buzzMessages.querySelector('button')?.focus();
 }
 
 for (const input of ui.layoutInputs) {
