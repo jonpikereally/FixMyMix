@@ -71,7 +71,7 @@ function normalizeChannels(raw) {
   return channels.length ? channels : defaultChannels(4);
 }
 
-function normalizeMembers(raw) {
+export function normalizeMembers(raw) {
   const list = Array.isArray(raw) ? raw.slice(0, MAX_MEMBERS) : [];
   const seen = new Set();
   return list.map((member, i) => {

@@ -484,6 +484,14 @@ body.has-composer { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
 
 /* Join page */
 a.btn-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line); text-decoration: none; color: inherit; }
+a.btn-link.compact { min-height: 36px; padding: 0 10px; font-size: 0.9rem; }
+
+/* Saved band setups */
+.setups { margin-top: 12px; }
+.setup { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+.setup .name { font-weight: 600; }
+.setup button.compact { min-height: 36px; }
+button.danger { color: #ff7b7b; }
 .join .qr-card { background: #fff; color: #111; border-radius: 20px; padding: 20px; margin: 8px 0 14px; }
 .join .qr svg { display: block; width: 100%; height: auto; max-width: 440px; margin: 0 auto; }
 .join .qr-url { text-align: center; font-size: 1.35rem; font-weight: 700; margin-top: 12px; word-break: break-all; font-variant-numeric: tabular-nums; }

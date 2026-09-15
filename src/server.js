@@ -10,13 +10,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
+import { Setups } from './setups.js';
 import { createApi, errorResponse, ApiError } from './api.js';
 import { createAuth, parseCookies, randomSecret, PASSCODE_PATTERN } from './auth.js';
 import { loadTls, createCertificate } from './tls.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 256 * 1024; // a setup file for a big band is ~30 KB
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -93,21 +94,20 @@ function loadConfig(dataDir, passcodeOverride, log) {
   return config;
 }
 
-function createPersister(store, dataDir, log) {
-  const file = path.join(dataDir, 'state.json');
+function createPersister(source, file, log) {
   let timer = null;
   let writing = Promise.resolve();
   const flush = () => {
     clearTimeout(timer);
     timer = null;
-    const snapshot = store.snapshot();
+    const snapshot = source.snapshot();
     writing = writing
       .then(() => fsp.writeFile(`${file}.tmp`, JSON.stringify(snapshot)))
       .then(() => fsp.rename(`${file}.tmp`, file))
-      .catch((error) => log(`Could not save state: ${error.message}`));
+      .catch((error) => log(`Could not save ${path.basename(file)}: ${error.message}`));
     return writing;
   };
-  const unsubscribe = store.subscribe(() => {
+  const unsubscribe = source.subscribe(() => {
     if (!timer) timer = setTimeout(flush, 250);
   });
   return { flush, stop: () => { unsubscribe(); clearTimeout(timer); } };
@@ -355,11 +355,14 @@ export async function start({
   const config = loadConfig(dataDir, passcode, log);
   const store = new Store(readJson(path.join(dataDir, 'state.json'), {}, log));
   if (!store.members.length) store.quickSetup(4, 4);
-  const persister = createPersister(store, dataDir, log);
+  const persister = createPersister(store, path.join(dataDir, 'state.json'), log);
+  const setups = new Setups(readJson(path.join(dataDir, 'setups.json'), [], log));
+  const setupsPersister = createPersister(setups, path.join(dataDir, 'setups.json'), log);
   const auth = createAuth(config);
   const api = createApi({
     store,
     auth,
+    setups,
     onCredentials: (credentials) => {
       saveConfig(dataDir, { ...credentials, passcodeChosen: true });
       log('Admin passcode changed.');
@@ -413,11 +416,12 @@ export async function start({
     async close() {
       api.hub.close();
       persister.stop();
+      setupsPersister.stop();
       await new Promise((resolve) => {
         server.front.close(resolve);
         server.destroyAll();
       });
-      await persister.flush();
+      await Promise.all([persister.flush(), setupsPersister.flush()]);
     },
   };
 }

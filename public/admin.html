@@ -103,6 +103,21 @@
       </div>
 
       <div class="card">
+        <h2>Band setups</h2>
+        <p class="muted small">Save the current roster and show settings under a name and bring it back for the next gig. Export gives you a JSON file to keep or move to another laptop; Import reads one back in.</p>
+        <div class="row">
+          <input id="setupName" type="text" maxlength="60" placeholder="Name this setup, e.g. Friday trio" class="grow-input" autocomplete="off">
+          <button id="saveSetup" class="primary" type="button">Save current</button>
+        </div>
+        <div id="setups" class="setups"></div>
+        <div class="row mt">
+          <a id="exportCurrent" class="btn-link" href="/api/admin/setups/export" download>Export current as JSON</a>
+          <button id="importSetup" class="ghost" type="button">Import JSON…</button>
+          <input id="importFile" type="file" accept="application/json,.json" class="hidden">
+        </div>
+      </div>
+
+      <div class="card">
         <h2>MIDI controller (this device)</h2>
         <p class="muted small">Next/previous step through pending requests and messages, up/down jump between members, confirm marks the highlighted one done. Bindings are saved on this device.</p>
         <div id="adminMidiPanel"></div>

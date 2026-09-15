@@ -154,6 +154,22 @@ async function acquireWakeLock() {
   }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acquireWakeLock(); });
+/** A plain GET of a JSON endpoint, with the same error shape as post(). */
+export async function get(url) {
+  let res;
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' } });
+  } catch {
+    throw new Error('Cannot reach the FixMyMix server. Are you on the show Wi-Fi?');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) return data;
+  const error = new Error(data.error || `Request failed (${res.status})`);
+  error.code = data.code;
+  error.status = res.status;
+  throw error;
+}
+
 export function keepScreenAwake(enabled) {
   wakeWanted = Boolean(enabled) && 'wakeLock' in navigator;
   if (!wakeWanted) {
