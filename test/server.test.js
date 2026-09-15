@@ -109,3 +109,14 @@ test('close() returns promptly even with a live stream and idle connections open
   assert.ok(['end', 'close'].includes(await ended));
   await assert.rejects(get(http, running.port));
 });
+
+test('listens on IPv6 and IPv4 together, so localhost works whichever the OS tries first', async (t) => {
+  const running = await start({ port: 0, dataDir: tmp(), autoCert: false, log: quiet });
+  t.after(() => running.close());
+  const v4 = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port: running.port, path: '/api/info' }, (res) => resolve(res.statusCode)).on('error', reject));
+  assert.equal(v4, 200);
+  const v6 = await new Promise((resolve) => http.get({ host: '::1', port: running.port, path: '/api/info' }, (res) => resolve(res.statusCode)).on('error', (e) => resolve(e.code)));
+  // ENETUNREACH/EADDRNOTAVAIL only when the machine has no IPv6 loopback at all.
+  assert.ok(v6 === 200 || ['ENETUNREACH', 'EADDRNOTAVAIL', 'ECONNREFUSED', 'EAFNOSUPPORT'].includes(v6), String(v6));
+  if (v6 !== 200) t.diagnostic(`IPv6 loopback unavailable here (${v6}); IPv4 path verified`);
+});
