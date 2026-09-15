@@ -5,3 +5,5 @@ desktop/dist/
 *.log
 .DS_Store
 .env
+FixMyMix-build/
+*.dmg
