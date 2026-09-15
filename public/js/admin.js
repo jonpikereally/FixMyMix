@@ -16,10 +16,12 @@ const ui = {
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
   allowMessages: $('allowMessages'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'),
   adminMidiPanel: $('adminMidiPanel'), qrLink: $('qrLink'),
+  currentPasscode: $('currentPasscode'), newPasscode: $('newPasscode'), savePasscode: $('savePasscode'),
 };
 
 let state = null;
 let admin = false;
+let passcode = null; // revealed by the session once logged in
 let view = 'board';
 let draft = null; // editable copy of the roster while on the Setup tab
 
@@ -375,6 +377,7 @@ function render() {
   }
   renderBoard();
   if (view === 'setup') {
+    ui.currentPasscode.textContent = passcode ?? '…';
     renderMidiPanel(ui.adminMidiPanel, midi, MIDI_LABELS);
     if (!draft) {
       seedDraft();
@@ -388,9 +391,10 @@ if (Object.keys(midi.bindings()).length) midi.connect();
 ui.loginForm.addEventListener('submit', (event) => {
   event.preventDefault();
   act(async () => {
-    await post('/api/admin/login', { passcode: ui.passcode.value.trim() });
+    const session = await post('/api/admin/login', { passcode: ui.passcode.value.trim() });
     ui.passcode.value = '';
     admin = true;
+    passcode = session.passcode ?? null;
     render();
   });
 });
@@ -413,6 +417,22 @@ ui.buzzAll.addEventListener('click', () => act(async () => {
 }));
 ui.clearHistory.addEventListener('click', () => act(() => post('/api/admin/history/clear')));
 ui.saveShow.addEventListener('click', () => act(() => post('/api/admin/show', { name: ui.showName.value }), 'Show name saved'));
+ui.savePasscode.addEventListener('click', () => {
+  const next = ui.newPasscode.value.trim();
+  if (!/^\d{4,12}$/.test(next)) return toast('Passcode must be 4 to 12 digits', { error: true });
+  act(async () => {
+    const session = await post('/api/admin/passcode', { passcode: next });
+    passcode = session.passcode;
+    ui.newPasscode.value = '';
+    render();
+  }, `Passcode is now ${next}`);
+});
+ui.newPasscode.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    ui.savePasscode.click();
+  }
+});
 ui.allowMessages.addEventListener('change', () => act(() => post('/api/admin/show', { messaging: ui.allowMessages.checked }), ui.allowMessages.checked ? 'Messages on' : 'Messages off'));
 
 ui.adminComposer.addEventListener('submit', (event) => {
@@ -472,7 +492,7 @@ ui.revertRoster.addEventListener('click', () => { seedDraft(); renderRoster(); t
 
 fetch('/api/admin/session', { cache: 'no-store' })
   .then((res) => res.json())
-  .then((data) => { admin = Boolean(data.admin); render(); })
+  .then((data) => { admin = Boolean(data.admin); passcode = data.passcode ?? null; render(); })
   .catch(() => {});
 
 watchState({
