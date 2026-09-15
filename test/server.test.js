@@ -18,7 +18,7 @@ const get = (mod, port, agentOpts = {}) => new Promise((resolve, reject) => {
   }).on('error', reject);
 });
 
-test('one port answers http and https when a certificate exists', async (t) => {
+test('one port answers http and https; the certificate is created on first start', async (t) => {
   const dataDir = tmp();
   const running = await start({ port: 0, host: '127.0.0.1', dataDir, log: quiet });
   t.after(() => running.close());
@@ -36,20 +36,24 @@ test('one port answers http and https when a certificate exists', async (t) => {
   assert.ok(fs.existsSync(path.join(dataDir, 'cert.pem')));
 });
 
-test('without a certificate a TLS attempt is refused outright, plain http still works', async (t) => {
+test('without a certificate a TLS attempt gets a handshake_failure alert, plain http still works', async (t) => {
   const running = await start({ port: 0, host: '127.0.0.1', dataDir: tmp(), autoCert: false, log: quiet });
   t.after(() => running.close());
   assert.deepEqual(running.httpsUrls, []);
   assert.equal((await get(http, running.port)).status, 200);
   await assert.rejects(get(https, running.port, { rejectUnauthorized: false }));
-  // The socket is closed as soon as the ClientHello arrives, not left hanging.
-  const closed = await new Promise((resolve) => {
+  // The ClientHello is answered with a fatal handshake_failure alert, then closed.
+  const reply = await new Promise((resolve) => {
+    const chunks = [];
     const socket = net.connect(running.port, '127.0.0.1', () => socket.write(Buffer.from([0x16, 0x03, 0x01, 0x00, 0x05, 0x01])));
-    socket.on('close', () => resolve(true));
+    socket.on('data', (c) => chunks.push(c));
+    const done = () => { socket.destroy(); resolve(Buffer.concat(chunks)); };
+    socket.on('end', done);
+    socket.on('close', done);
     socket.on('error', () => {});
-    setTimeout(() => resolve(false), 3000);
+    setTimeout(done, 3000).unref();
   });
-  assert.equal(closed, true);
+  assert.deepEqual([...reply], [0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x28]);
 });
 
 test('a client that connects and says nothing is dropped after the idle timeout', async (t) => {
@@ -73,4 +77,13 @@ test('a leftover passcode from an early config file is ignored; one chosen in Se
   t.after(() => second.close());
   assert.equal(second.passcode, '2468');
   assert.equal((await start({ port: 0, host: '127.0.0.1', dataDir, autoCert: false, passcode: '5555', log: quiet }).then(async (r) => { const p = r.passcode; await r.close(); return p; })), '5555');
+});
+
+test('the default port is 80, falling back to 8080 and up when it cannot be bound', async (t) => {
+  // Port 80 is not bindable here without root, so this exercises the fallback.
+  const running = await start({ host: '127.0.0.1', dataDir: tmp(), autoCert: false, log: quiet });
+  t.after(() => running.close());
+  assert.ok([80, 8080, 8081, 8082, 8083, 8084, 8085].includes(running.port), String(running.port));
+  const url = running.urls[0];
+  assert.equal(url, running.port === 80 ? `http://${new URL(url).hostname}` : `http://${new URL(url).hostname}:${running.port}`);
 });

@@ -31,6 +31,11 @@ npx electron-packager . FixMyMix \
 # "unidentified developer" step.
 codesign --force --deep --sign - "$APP"
 
+# The zipped app is what the in-app updater downloads.
+ZIP="$OUT/FixMyMix-$VERSION-mac.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
@@ -40,4 +45,5 @@ rm -rf "$STAGE"
 
 echo
 echo "Installer: $DMG"
+echo "Update package: $ZIP"
 echo "On the other Mac: open it, drag FixMyMix to Applications, then right-click FixMyMix → Open."

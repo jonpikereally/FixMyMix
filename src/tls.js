@@ -39,3 +39,8 @@ export function createCertificate(dataDir) {
     });
   });
 }
+
+export function removeCertificate(dataDir) {
+  const files = tlsFiles(dataDir);
+  for (const file of [files.key, files.cert]) fs.rmSync(file, { force: true });
+}
