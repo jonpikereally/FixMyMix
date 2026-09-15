@@ -55,9 +55,9 @@ test('one device reads singular', () => {
 test('with https on, the menu lists the https address and drops the setup item', () => {
   const { calls, actions } = actionsSpy();
   const items = buildMenu({ running: true, starting: false, error: null, urls: ['http://10.0.0.5:8080'], httpsUrls: ['https://10.0.0.5:8443'], passcode: '1', port: 8080, loginItem: false }, actions);
-  assert.ok(find(items, 'https://10.0.0.5:8443  (MIDI)'));
+  assert.ok(find(items, 'https://10.0.0.5:8443  (also works)'));
   assert.equal(find(items, 'Set up HTTPS (for MIDI on other devices)…'), undefined);
-  find(items, 'https://10.0.0.5:8443  (MIDI)').click();
+  find(items, 'https://10.0.0.5:8443  (also works)').click();
   assert.deepEqual(calls, [['copy', 'https://10.0.0.5:8443']]);
 });
 

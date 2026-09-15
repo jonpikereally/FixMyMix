@@ -3,6 +3,7 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import net from 'node:net';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -10,8 +11,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { createApi, errorResponse, ApiError } from './api.js';
-import { createAuth, parseCookies, randomSecret } from './auth.js';
-import { loadTls } from './tls.js';
+import { createAuth, parseCookies, randomSecret, PASSCODE_PATTERN } from './auth.js';
+import { loadTls, createCertificate } from './tls.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -66,22 +67,29 @@ function readJson(file, fallback, log) {
   }
 }
 
-// The passcode is a fixed default: this runs on a private stage Wi-Fi and the
-// point of the lock is to stop a performer wandering into the board by
-// accident, not to resist an attacker. ADMIN_PASSCODE overrides it.
+// The passcode starts as a simple default: this runs on a private stage Wi-Fi
+// and the lock exists to stop a performer wandering into the board by accident,
+// not to resist an attacker. The admin can change it from Setup (persisted in
+// config.json); ADMIN_PASSCODE overrides both at startup.
 export const DEFAULT_PASSCODE = '1234';
+
+function saveConfig(dataDir, config) {
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify(config, null, 2), { mode: 0o600 });
+}
 
 function loadConfig(dataDir, passcodeOverride, log) {
   fs.mkdirSync(dataDir, { recursive: true });
-  const file = path.join(dataDir, 'config.json');
-  const stored = readJson(file, {}, log);
+  const stored = readJson(path.join(dataDir, 'config.json'), {}, log);
+  const valid = (value) => PASSCODE_PATTERN.test(String(value ?? ''));
+  // Only a passcode chosen in Setup is honoured; config files from early
+  // builds carry a leftover random one that must not resurface.
+  const chosen = stored.passcodeChosen === true && valid(stored.passcode);
   const config = {
     secret: typeof stored.secret === 'string' && stored.secret.length >= 32 ? stored.secret : randomSecret(),
-    passcode: /^\d{4,12}$/.test(String(passcodeOverride ?? '')) ? String(passcodeOverride) : DEFAULT_PASSCODE,
+    passcode: valid(passcodeOverride) ? String(passcodeOverride) : chosen ? String(stored.passcode) : DEFAULT_PASSCODE,
+    passcodeChosen: chosen,
   };
-  if (config.secret !== stored.secret) {
-    fs.writeFileSync(file, JSON.stringify({ secret: config.secret }, null, 2), { mode: 0o600 });
-  }
+  if (config.secret !== stored.secret || config.passcode !== stored.passcode || config.passcodeChosen !== stored.passcodeChosen) saveConfig(dataDir, config);
   return config;
 }
 
@@ -212,6 +220,41 @@ function listen(server, port, host) {
   });
 }
 
+/**
+ * One port, both protocols. Newer iPhones try https:// first even for an
+ * http:// QR code and only fall back if the https attempt is refused, so a
+ * plain http port that answers the connection and then fails the handshake
+ * leaves the phone on an error page. Here the first byte of each connection
+ * decides: a TLS ClientHello (0x16) goes to the https server when there is a
+ * certificate — and is dropped outright when there is not, which is the
+ * "refused" the phone needs to fall back — and anything else goes to http.
+ */
+function createDualServer(listener, tls) {
+  const plain = http.createServer(listener);
+  const secure = tls ? https.createServer(tls, listener) : null;
+  const front = net.createServer((socket) => {
+    socket.setTimeout(10_000, () => socket.destroy());
+    socket.once('data', (first) => {
+      socket.setTimeout(0);
+      socket.pause();
+      socket.unshift(first);
+      if (first[0] === 0x16) {
+        if (!secure) return socket.destroy();
+        secure.emit('connection', socket);
+      } else {
+        plain.emit('connection', socket);
+      }
+      process.nextTick(() => socket.resume());
+    });
+    socket.on('error', () => {});
+  });
+  front.on('close', () => {
+    plain.close();
+    secure?.close();
+  });
+  return { front, plain, secure, hasTls: Boolean(secure) };
+}
+
 // Other stage tools (AbleSet, mixer remotes) like port 8080 too. Rather than
 // refuse to start, walk up to the next free port; every address the app shows
 // carries the real port, so nothing else needs to know.
@@ -230,14 +273,15 @@ async function listenNearby(server, port, host, log) {
 }
 
 /**
- * Starts the LAN server. Resolves once it is listening. If data/key.pem and
- * data/cert.pem exist (see `npm run cert`) an https listener is started too.
- * @returns {Promise<{ port: number, httpsPort: number|null, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
+ * Starts the LAN server. Resolves once it is listening. The one port serves
+ * http and — given data/key.pem and data/cert.pem, created automatically when
+ * openssl is available — https as well.
+ * @returns {Promise<{ port: number, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
  */
 export async function start({
   port = Number(process.env.PORT) || 8080,
-  httpsPort = Number(process.env.HTTPS_PORT) || 8443,
   host = process.env.HOST || '0.0.0.0',
+  autoCert = process.env.FIXMYMIX_AUTO_CERT !== '0',
   dataDir = process.env.FIXMYMIX_DATA_DIR || path.join(ROOT, 'data'),
   passcode = process.env.ADMIN_PASSCODE,
   log = console.log,
@@ -246,41 +290,49 @@ export async function start({
   const store = new Store(readJson(path.join(dataDir, 'state.json'), {}, log));
   if (!store.members.length) store.quickSetup(4, 4);
   const persister = createPersister(store, dataDir, log);
-  const api = createApi({ store, auth: createAuth(config) });
+  const auth = createAuth(config);
+  const api = createApi({
+    store,
+    auth,
+    onCredentials: (credentials) => {
+      saveConfig(dataDir, { ...credentials, passcodeChosen: true });
+      log('Admin passcode changed.');
+    },
+  });
   // Filled in once the ports are known; /api/info reports them so the join
   // page can draw a QR code of the address performers should open.
   let addresses = () => ({ urls: [], httpsUrls: [] });
   const listener = createRequestListener({ api, log, info: () => addresses() });
-  const server = http.createServer(listener);
-  await listenNearby(server, port, host, log);
 
-  const tls = loadTls(dataDir);
-  let secure = null;
-  if (tls) {
-    secure = https.createServer(tls, listener);
+  let tls = loadTls(dataDir);
+  if (!tls && autoCert) {
     try {
-      await listen(secure, httpsPort, host);
+      await createCertificate(dataDir);
+      tls = loadTls(dataDir);
+      log('Created a self-signed certificate so https:// works on the same port.');
     } catch (error) {
-      log(`Not serving https: ${error.message}`);
-      secure = null;
+      log(`No https (${error.message}). Phones that insist on https will fall back to http.`);
     }
   }
+  const server = createDualServer(listener, tls);
+  await listenNearby(server.front, port, host, log);
 
-  const actualPort = server.address().port;
-  const actualHttpsPort = secure?.address().port ?? null;
+  const actualPort = server.front.address().port;
   const hosts = () => {
     const ips = lanAddresses();
     return ips.length ? ips : ['localhost'];
   };
 
   const urls = () => hosts().map((ip) => `http://${ip}:${actualPort}`);
-  const httpsUrls = () => (actualHttpsPort ? hosts().map((ip) => `https://${ip}:${actualHttpsPort}`) : []);
+  const httpsUrls = () => (server.hasTls ? hosts().map((ip) => `https://${ip}:${actualPort}`) : []);
   addresses = () => ({ urls: urls(), httpsUrls: httpsUrls() });
 
   return {
     port: actualPort,
-    httpsPort: actualHttpsPort,
-    passcode: config.passcode,
+    httpsPort: server.hasTls ? actualPort : null,
+    get passcode() {
+      return auth.passcode;
+    },
     dataDir,
     devices: () => api.hub.size(),
     get urls() {
@@ -292,7 +344,7 @@ export async function start({
     async close() {
       api.hub.close();
       persister.stop();
-      await Promise.all([server, secure].filter(Boolean).map((s) => new Promise((resolve) => s.close(resolve))));
+      await new Promise((resolve) => server.front.close(resolve));
       await persister.flush();
     },
   };
@@ -308,11 +360,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`  QR code for them to scan: http://localhost:${running.port}/join`);
   if (running.httpsUrls.length) {
     console.log('');
-    console.log('  For MIDI controllers on other devices (accept the certificate once):');
-    for (const url of running.httpsUrls) console.log(`    ${url}`);
+    console.log('  The same address also works as https:// (accept the certificate once) —');
+    console.log('  needed for MIDI controllers on other devices.');
   } else {
     console.log('');
-    console.log('  MIDI controllers on other devices need https: run `npm run cert` and restart.');
+    console.log('  https is off (no certificate; see `npm run cert`). MIDI controllers on other devices need it.');
   }
   console.log('');
   console.log(`  Admin passcode: ${running.passcode}`);
