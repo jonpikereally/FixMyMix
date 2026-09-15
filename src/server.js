@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { createApi, errorResponse, ApiError } from './api.js';
-import { createAuth, parseCookies, randomSecret } from './auth.js';
+import { createAuth, parseCookies, randomSecret, PASSCODE_PATTERN } from './auth.js';
 import { loadTls } from './tls.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -66,22 +66,25 @@ function readJson(file, fallback, log) {
   }
 }
 
-// The passcode is a fixed default: this runs on a private stage Wi-Fi and the
-// point of the lock is to stop a performer wandering into the board by
-// accident, not to resist an attacker. ADMIN_PASSCODE overrides it.
+// The passcode starts as a simple default: this runs on a private stage Wi-Fi
+// and the lock exists to stop a performer wandering into the board by accident,
+// not to resist an attacker. The admin can change it from Setup (persisted in
+// config.json); ADMIN_PASSCODE overrides both at startup.
 export const DEFAULT_PASSCODE = '1234';
+
+function saveConfig(dataDir, config) {
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify(config, null, 2), { mode: 0o600 });
+}
 
 function loadConfig(dataDir, passcodeOverride, log) {
   fs.mkdirSync(dataDir, { recursive: true });
-  const file = path.join(dataDir, 'config.json');
-  const stored = readJson(file, {}, log);
+  const stored = readJson(path.join(dataDir, 'config.json'), {}, log);
+  const valid = (value) => PASSCODE_PATTERN.test(String(value ?? ''));
   const config = {
     secret: typeof stored.secret === 'string' && stored.secret.length >= 32 ? stored.secret : randomSecret(),
-    passcode: /^\d{4,12}$/.test(String(passcodeOverride ?? '')) ? String(passcodeOverride) : DEFAULT_PASSCODE,
+    passcode: valid(passcodeOverride) ? String(passcodeOverride) : valid(stored.passcode) ? String(stored.passcode) : DEFAULT_PASSCODE,
   };
-  if (config.secret !== stored.secret) {
-    fs.writeFileSync(file, JSON.stringify({ secret: config.secret }, null, 2), { mode: 0o600 });
-  }
+  if (config.secret !== stored.secret || config.passcode !== stored.passcode) saveConfig(dataDir, config);
   return config;
 }
 
@@ -246,7 +249,15 @@ export async function start({
   const store = new Store(readJson(path.join(dataDir, 'state.json'), {}, log));
   if (!store.members.length) store.quickSetup(4, 4);
   const persister = createPersister(store, dataDir, log);
-  const api = createApi({ store, auth: createAuth(config) });
+  const auth = createAuth(config);
+  const api = createApi({
+    store,
+    auth,
+    onCredentials: (credentials) => {
+      saveConfig(dataDir, credentials);
+      log('Admin passcode changed.');
+    },
+  });
   // Filled in once the ports are known; /api/info reports them so the join
   // page can draw a QR code of the address performers should open.
   let addresses = () => ({ urls: [], httpsUrls: [] });
@@ -280,7 +291,9 @@ export async function start({
   return {
     port: actualPort,
     httpsPort: actualHttpsPort,
-    passcode: config.passcode,
+    get passcode() {
+      return auth.passcode;
+    },
     dataDir,
     devices: () => api.hub.size(),
     get urls() {

@@ -97,11 +97,11 @@ The admin board is just a web page too, so it can run on an iPad (or a phone, or
 | --- | --- | --- |
 | `PORT` | `8080` | Port to listen on; if it's taken (AbleSet also likes 8080) the next free one up to +9 is used, and every address shown carries the real port |
 | `HOST` | `0.0.0.0` | Interface to bind |
-| `ADMIN_PASSCODE` | `1234` | Admin passcode (4–12 digits) |
+| `ADMIN_PASSCODE` | — | Forces the admin passcode at startup (4–12 digits); otherwise the last one set in Setup is used, `1234` to begin with |
 | `HTTPS_PORT` | `8443` | Port for https, used only when `data/key.pem` and `data/cert.pem` exist (`npm run cert`) |
 | `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests, messages), `config.json` (passcode, session secret) and the optional certificate live |
 
-State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. The passcode is deliberately a fixed default — the lock is there to stop a performer wandering into the board by accident on a private stage Wi-Fi, not to resist an attacker; set `ADMIN_PASSCODE` if you want a different one. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
+State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. The passcode starts as `1234` — the lock is there to stop a performer wandering into the board by accident on a private stage Wi-Fi, not to resist an attacker. Change it in **Setup → Admin passcode**; it's saved with the show, other admin devices are logged out, and the menu bar shows the new one. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
 
 ## Gig checklist
 
@@ -149,7 +149,7 @@ test/             node:test suites for state, api/auth and the tray menu
 
 ## Security notes
 
-- Admin routes require a passcode (default `1234`, see above); the check is a timing-safe compare and login attempts are rate-limited per IP.
+- Admin routes require a passcode (default `1234`, changeable in Setup); the check is a timing-safe compare, login attempts are rate-limited per IP, and changing the passcode rotates the session secret so existing admin cookies stop working.
 - Every response carries `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`. The CSP allows no inline script or style. `Strict-Transport-Security` is deliberately omitted because the app is served over plain HTTP on a private LAN, where browsers ignore it.
 - Performer actions are unauthenticated by design (a stage is a trusted room) but are validated against the roster and throttled per performer.
 
