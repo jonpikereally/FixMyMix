@@ -56,9 +56,9 @@ test('one device reads singular', () => {
 test('with https on, the menu lists the https address and drops the setup item', () => {
   const { calls, actions } = actionsSpy();
   const items = buildMenu({ running: true, starting: false, error: null, urls: ['http://10.0.0.5:8080'], httpsUrls: ['https://10.0.0.5:8443'], passcode: '1', port: 8080, loginItem: false }, actions);
-  assert.ok(find(items, 'https://10.0.0.5:8443  (also works)'));
+  assert.ok(find(items, 'https://10.0.0.5:8443  (MIDI)'));
   assert.equal(find(items, 'Set up HTTPS (for MIDI on other devices)…'), undefined);
-  find(items, 'https://10.0.0.5:8443  (also works)').click();
+  find(items, 'https://10.0.0.5:8443  (MIDI)').click();
   assert.deepEqual(calls, [['copy', 'https://10.0.0.5:8443']]);
 });
 
@@ -84,4 +84,11 @@ test('update items follow the updater state machine', () => {
   updateItems({ status: 'error' }, actions)[1].click();
   assert.deepEqual(calls, [['downloadUpdate'], ['installUpdate'], ['checkForUpdates']]);
   assert.equal(updateItems({ status: 'downloading', version: '1', progress: 5 }, actions)[0].enabled, false);
+});
+
+test('port 80 gives port-less local links', () => {
+  const { calls, actions } = actionsSpy();
+  const items = buildMenu({ running: true, starting: false, error: null, urls: ['http://10.0.0.5'], httpsUrls: [], passcode: '1', port: 80, loginItem: false }, actions);
+  find(items, 'Open admin board').click();
+  assert.deepEqual(calls, [['open', 'http://localhost/admin']]);
 });

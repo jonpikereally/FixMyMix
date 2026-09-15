@@ -255,17 +255,32 @@ function createDualServer(listener, tls) {
   return { front, plain, secure, hasTls: Boolean(secure) };
 }
 
-// Other stage tools (AbleSet, mixer remotes) like port 8080 too. Rather than
-// refuse to start, walk up to the next free port; every address the app shows
-// carries the real port, so nothing else needs to know.
+export const DEFAULT_PORT = 80;
+
+/**
+ * Port 80 first: the address is then just http://192.168.x.x, and a phone that
+ * insists on trying https:// hits port 443 — closed — and falls back to http
+ * without a warning page. If 80 is taken (AbleSet on the same Mac) or not
+ * permitted (Linux without root), fall back to 8080 and walk up from there;
+ * every address the app shows carries the real port, so nothing else needs
+ * to know.
+ */
+function candidates(port) {
+  const list = port === DEFAULT_PORT ? [80, 8080, 8081, 8082, 8083, 8084, 8085] : [];
+  for (let p = port; p < port + 10; p++) if (!list.includes(p)) list.push(p);
+  return list;
+}
+
 async function listenNearby(server, port, host, log) {
-  for (let candidate = port; candidate < port + 10; candidate++) {
+  const ports = candidates(port);
+  for (const [i, candidate] of ports.entries()) {
     try {
       await listen(server, candidate, host);
-      if (candidate !== port) log(`Port ${port} is in use; using ${candidate} instead.`);
+      if (candidate !== port) log(`Port ${port} is not available; using ${candidate} instead.`);
       return candidate;
     } catch (error) {
-      if (error.code !== 'EADDRINUSE' || candidate === port + 9) throw error;
+      const busy = error.code === 'EADDRINUSE' || error.code === 'EACCES';
+      if (!busy || i === ports.length - 1) throw error;
       server.removeAllListeners('error');
     }
   }
@@ -273,15 +288,16 @@ async function listenNearby(server, port, host, log) {
 }
 
 /**
- * Starts the LAN server. Resolves once it is listening. The one port serves
- * http and — given data/key.pem and data/cert.pem, created automatically when
- * openssl is available — https as well.
- * @returns {Promise<{ port: number, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
+ * Starts the LAN server. Resolves once it is listening. Plain http by
+ * default. With data/key.pem and data/cert.pem present (`npm run cert`, or
+ * "Set up HTTPS" in the menu-bar app) the same port also answers https and,
+ * when the http port is 80, port 443 is served as well.
+ * @returns {Promise<{ port: number, httpsPort: number|null, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
  */
 export async function start({
-  port = Number(process.env.PORT) || 8080,
+  port = Number(process.env.PORT) || DEFAULT_PORT,
   host = process.env.HOST || '0.0.0.0',
-  autoCert = process.env.FIXMYMIX_AUTO_CERT !== '0',
+  autoCert = process.env.FIXMYMIX_AUTO_CERT === '1',
   dataDir = process.env.FIXMYMIX_DATA_DIR || path.join(ROOT, 'data'),
   passcode = process.env.ADMIN_PASSCODE,
   log = console.log,
@@ -309,27 +325,42 @@ export async function start({
     try {
       await createCertificate(dataDir);
       tls = loadTls(dataDir);
-      log('Created a self-signed certificate so https:// works on the same port.');
+      log('Created a self-signed certificate; https:// is on.');
     } catch (error) {
-      log(`No https (${error.message}). Phones that insist on https will fall back to http.`);
+      log(`No https (${error.message}).`);
     }
   }
   const server = createDualServer(listener, tls);
   await listenNearby(server.front, port, host, log);
-
   const actualPort = server.front.address().port;
+
+  // With a certificate and the standard http port, also take the standard
+  // https port so https://<address> works without a port number.
+  let secure443 = null;
+  if (tls && actualPort === 80) {
+    secure443 = https.createServer(tls, listener);
+    try {
+      await listen(secure443, 443, host);
+    } catch (error) {
+      log(`Not serving https on 443: ${error.message}`);
+      secure443 = null;
+    }
+  }
+
   const hosts = () => {
     const ips = lanAddresses();
     return ips.length ? ips : ['localhost'];
   };
+  const withPort = (scheme, ip, p) => `${scheme}://${ip}${(scheme === 'http' && p === 80) || (scheme === 'https' && p === 443) ? '' : `:${p}`}`;
+  const httpsPort = server.hasTls ? (secure443 ? 443 : actualPort) : null;
 
-  const urls = () => hosts().map((ip) => `http://${ip}:${actualPort}`);
-  const httpsUrls = () => (server.hasTls ? hosts().map((ip) => `https://${ip}:${actualPort}`) : []);
+  const urls = () => hosts().map((ip) => withPort('http', ip, actualPort));
+  const httpsUrls = () => (httpsPort ? hosts().map((ip) => withPort('https', ip, httpsPort)) : []);
   addresses = () => ({ urls: urls(), httpsUrls: httpsUrls() });
 
   return {
     port: actualPort,
-    httpsPort: server.hasTls ? actualPort : null,
+    httpsPort,
     get passcode() {
       return auth.passcode;
     },
@@ -344,7 +375,7 @@ export async function start({
     async close() {
       api.hub.close();
       persister.stop();
-      await new Promise((resolve) => server.front.close(resolve));
+      await Promise.all([server.front, secure443].filter(Boolean).map((s) => new Promise((resolve) => s.close(resolve))));
       await persister.flush();
     },
   };
@@ -357,14 +388,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log('');
   console.log('  Performers open one of these on the same Wi-Fi:');
   for (const url of running.urls) console.log(`    ${url}`);
-  console.log(`  QR code for them to scan: http://localhost:${running.port}/join`);
+  console.log(`  QR code for them to scan: http://localhost${running.port === 80 ? '' : `:${running.port}`}/join`);
   if (running.httpsUrls.length) {
     console.log('');
-    console.log('  The same address also works as https:// (accept the certificate once) —');
-    console.log('  needed for MIDI controllers on other devices.');
-  } else {
-    console.log('');
-    console.log('  https is off (no certificate; see `npm run cert`). MIDI controllers on other devices need it.');
+    console.log('  https:// is on for MIDI controllers on other devices (accept the certificate once):');
+    for (const url of running.httpsUrls) console.log(`    ${url}`);
   }
   console.log('');
   console.log(`  Admin passcode: ${running.passcode}`);

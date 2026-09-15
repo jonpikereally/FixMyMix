@@ -20,7 +20,7 @@ const get = (mod, port, agentOpts = {}) => new Promise((resolve, reject) => {
 
 test('one port answers http and https when a certificate exists', async (t) => {
   const dataDir = tmp();
-  const running = await start({ port: 0, host: '127.0.0.1', dataDir, log: quiet });
+  const running = await start({ port: 0, host: '127.0.0.1', dataDir, autoCert: true, log: quiet });
   t.after(() => running.close());
   if (!running.httpsUrls.length) {
     t.skip('openssl not available to create a certificate');
@@ -36,8 +36,8 @@ test('one port answers http and https when a certificate exists', async (t) => {
   assert.ok(fs.existsSync(path.join(dataDir, 'cert.pem')));
 });
 
-test('without a certificate a TLS attempt is refused outright, plain http still works', async (t) => {
-  const running = await start({ port: 0, host: '127.0.0.1', dataDir: tmp(), autoCert: false, log: quiet });
+test('by default there is no certificate: a TLS attempt is refused outright, plain http still works', async (t) => {
+  const running = await start({ port: 0, host: '127.0.0.1', dataDir: tmp(), log: quiet });
   t.after(() => running.close());
   assert.deepEqual(running.httpsUrls, []);
   assert.equal((await get(http, running.port)).status, 200);
@@ -73,4 +73,13 @@ test('a leftover passcode from an early config file is ignored; one chosen in Se
   t.after(() => second.close());
   assert.equal(second.passcode, '2468');
   assert.equal((await start({ port: 0, host: '127.0.0.1', dataDir, autoCert: false, passcode: '5555', log: quiet }).then(async (r) => { const p = r.passcode; await r.close(); return p; })), '5555');
+});
+
+test('the default port is 80, falling back to 8080 and up when it cannot be bound', async (t) => {
+  // Port 80 is not bindable here without root, so this exercises the fallback.
+  const running = await start({ host: '127.0.0.1', dataDir: tmp(), log: quiet });
+  t.after(() => running.close());
+  assert.ok([80, 8080, 8081, 8082, 8083, 8084, 8085].includes(running.port), String(running.port));
+  const url = running.urls[0];
+  assert.equal(url, running.port === 80 ? `http://${new URL(url).hostname}` : `http://${new URL(url).hostname}:${running.port}`);
 });

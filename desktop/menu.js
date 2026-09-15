@@ -2,7 +2,7 @@
 
 export function buildMenu(state, actions) {
   const items = [];
-  const localUrl = `http://localhost:${state.port}`;
+  const localUrl = `http://localhost${state.port === 80 ? '' : `:${state.port}`}`;
 
   const name = state.version ? `FixMyMix ${state.version}` : 'FixMyMix';
   if (state.starting) items.push({ label: 'Starting FixMyMix…', enabled: false });
@@ -19,7 +19,7 @@ export function buildMenu(state, actions) {
       items.push({ label: url, toolTip: 'Copy address', click: () => actions.copy(url) });
     }
     for (const url of state.httpsUrls ?? []) {
-      items.push({ label: `${url}  (also works)`, toolTip: 'Copy https address — the same port; needed for MIDI controllers on other devices', click: () => actions.copy(url) });
+      items.push({ label: `${url}  (MIDI)`, toolTip: 'Copy https address — for MIDI controllers on other devices', click: () => actions.copy(url) });
     }
     items.push({ label: `Admin passcode: ${state.passcode}`, toolTip: 'Copy passcode', click: () => actions.copy(state.passcode) });
     items.push({ type: 'separator' });
