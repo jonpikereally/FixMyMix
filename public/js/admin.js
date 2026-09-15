@@ -1,4 +1,4 @@
-import { watchState, post, toast, el, ago, keepScreenAwake } from './net.js';
+import { watchState, post, get, toast, el, ago, keepScreenAwake } from './net.js';
 import { ICONS, glyph, guessIcon } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 
@@ -16,6 +16,7 @@ const ui = {
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
   allowMessages: $('allowMessages'), buzzDefault: $('buzzDefault'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'), messageBuzz: $('messageBuzz'),
   adminMidiPanel: $('adminMidiPanel'), qrLink: $('qrLink'),
+  setupName: $('setupName'), saveSetup: $('saveSetup'), setups: $('setups'), exportCurrent: $('exportCurrent'), importSetup: $('importSetup'), importFile: $('importFile'),
   currentPasscode: $('currentPasscode'), newPasscode: $('newPasscode'), savePasscode: $('savePasscode'),
 };
 
@@ -24,6 +25,7 @@ let admin = false;
 let passcode = null; // revealed by the session once logged in
 let view = 'board';
 let draft = null; // editable copy of the roster while on the Setup tab
+let setups = null; // saved band setups, fetched when the Setup tab opens
 
 // MIDI walks a highlight through the pending items in board order.
 let cursorId = null;
@@ -350,9 +352,7 @@ function saveRoster() {
   }));
   if (members.some((m) => !m.channels.length)) return toast('Every member needs at least one channel', { error: true });
   act(async () => {
-    await post('/api/admin/roster', { members });
-    seedDraft();
-    renderRoster();
+    applySnapshot(await post('/api/admin/roster', { members }));
   }, 'Roster saved');
 }
 
@@ -392,8 +392,97 @@ function render() {
       seedDraft();
       renderRoster();
     }
+    if (!setups) refreshSetups();
+    else renderSetups();
   }
 }
+
+// --- Band setups: save / load / export / delete / import
+async function refreshSetups() {
+  setups = [];
+  try {
+    const { setups: list } = await get('/api/admin/setups');
+    setups = list;
+  } catch (error) {
+    toast(error.message, { error: true });
+  }
+  renderSetups();
+}
+
+function renderSetups() {
+  const when = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  ui.setups.replaceChildren(
+    ...(setups?.length
+      ? setups.map((s) => el('div', { class: 'setup', 'data-id': s.id }, [
+          el('div', { class: 'grow' }, [
+            el('div', { class: 'name', text: s.name }),
+            el('div', { class: 'muted small', text: `${s.members} member${s.members === 1 ? '' : 's'} · ${s.channels} channel${s.channels === 1 ? '' : 's'} · saved ${when(s.savedAt)}` }),
+          ]),
+          el('button', { type: 'button', class: 'primary compact load-setup', text: 'Load', onclick: () => loadSetup(s) }),
+          el('a', { class: 'btn-link compact', href: `/api/admin/setups/export?id=${encodeURIComponent(s.id)}`, download: '', text: 'Export' }),
+          el('button', { type: 'button', class: 'ghost compact danger delete-setup', text: 'Delete', onclick: () => deleteSetup(s) }),
+        ]))
+      : [el('p', { class: 'muted small', text: 'No setups saved yet. Name the current one above and press Save current.' })]),
+  );
+}
+
+// The reply to a load carries the new roster; use it now rather than waiting
+// for the stream, so the editor below never re-seeds from the old one.
+function applySnapshot(snapshot) {
+  if (snapshot?.members && state) state = { ...state, ...snapshot, presence: state.presence };
+  draft = null;
+  render();
+}
+
+function loadSetup(setup) {
+  if (!confirm(`Load “${setup.name}”? This replaces the current roster. Pending requests for anyone not in it are cleared, and performers may need to re-pick their name.`)) return;
+  act(async () => {
+    const { loaded: _loaded, ...snapshot } = await post('/api/admin/setups/load', { id: setup.id });
+    applySnapshot(snapshot);
+  }, `Loaded “${setup.name}”`);
+}
+
+function deleteSetup(setup) {
+  if (!confirm(`Delete the saved setup “${setup.name}”? The current roster is not affected.`)) return;
+  act(async () => {
+    const { setups: list } = await post('/api/admin/setups/delete', { id: setup.id });
+    setups = list;
+    renderSetups();
+  }, 'Setup deleted');
+}
+
+ui.saveSetup.addEventListener('click', () => {
+  const name = ui.setupName.value.trim();
+  if (!name) { ui.setupName.focus(); return toast('Give the setup a name first', { error: true }); }
+  if (draft && JSON.stringify(draft) !== JSON.stringify(state.members.map((m) => ({ id: m.id, name: m.name, icon: m.icon, channels: m.channels.map((c) => ({ ...c })) }))) && !confirm('The roster below has unsaved edits, which will not be included. Save the setup anyway?')) return;
+  act(async () => {
+    const { saved, setups: list } = await post('/api/admin/setups', { name });
+    setups = list;
+    ui.setupName.value = '';
+    renderSetups();
+    return saved;
+  }, `Saved “${name}”`);
+});
+
+ui.importSetup.addEventListener('click', () => ui.importFile.click());
+ui.importFile.addEventListener('change', () => {
+  const file = ui.importFile.files?.[0];
+  ui.importFile.value = '';
+  if (!file) return;
+  act(async () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error('That file is not valid JSON.');
+    }
+    const load = confirm(`Import “${file.name}” and load it now? OK replaces the current roster with it; Cancel just adds it to the saved list.`);
+    const { imported, setups: list, ...snapshot } = await post('/api/admin/setups/import', { setup: parsed, filename: file.name, load });
+    setups = list;
+    if (load) applySnapshot(snapshot); else renderSetups();
+    toast(load ? `Imported and loaded “${imported.name}”` : `Imported “${imported.name}” — press Load to use it`);
+  });
+});
 
 if (Object.keys(midi.bindings()).length) midi.connect();
 
@@ -416,7 +505,7 @@ ui.logout.addEventListener('click', () => act(async () => {
 }));
 
 ui.tabBoard.addEventListener('click', () => { view = 'board'; render(); });
-ui.tabSetup.addEventListener('click', () => { view = 'setup'; draft = null; render(); });
+ui.tabSetup.addEventListener('click', () => { view = 'setup'; draft = null; setups = null; render(); });
 ui.tabBoard.addEventListener('click', closeIconMenu);
 
 ui.resolveAll.addEventListener('click', () => act(() => post('/api/admin/resolve', { all: true })));
@@ -463,9 +552,7 @@ ui.quickSetup.addEventListener('click', () => {
   const channelCount = Number(ui.channelCount.value);
   if (!confirm(`Replace the current roster with ${memberCount} members × ${channelCount} channels? Pending requests will be cleared and performers will need to re-pick their name.`)) return;
   act(async () => {
-    await post('/api/admin/roster', { memberCount, channelCount });
-    seedDraft();
-    renderRoster();
+    applySnapshot(await post('/api/admin/roster', { memberCount, channelCount }));
   }, 'Roster built');
 });
 
