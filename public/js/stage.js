@@ -7,7 +7,10 @@ const withGlyph = (item) => (glyph(item.icon) ? `${glyph(item.icon)} ${item.name
 const MEMBER_KEY = 'fixmymix.memberId';
 const SETTINGS_KEY = 'fixmymix.settings';
 const CONFIRM_MS = 8000;
-const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true };
+const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true, swipe: true };
+// A flick: at least this far, mostly vertical, and quick — slower drags scroll.
+const SWIPE_MIN_PX = 40;
+const SWIPE_MAX_MS = 450;
 const LAYOUTS = new Set(['rows', 'boxes']);
 
 const ui = {
@@ -19,6 +22,7 @@ const ui = {
   settings: document.getElementById('settings'),
   autoDismiss: document.getElementById('autoDismiss'),
   keepAwake: document.getElementById('keepAwake'),
+  swipe: document.getElementById('swipe'),
   keepAwakeHint: document.getElementById('keepAwakeHint'),
   layoutInputs: document.querySelectorAll('input[name="layout"]'),
   offline: document.getElementById('offline'),
@@ -242,12 +246,12 @@ function renderPicker() {
 
 const HINTS = {
   rows: {
-    auto: 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.',
-    sticky: 'Tap − or + to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.',
+    auto: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.',
+    sticky: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.',
   },
   boxes: {
-    auto: 'Tap the top of a box for more, the bottom for less. Tap again to push harder. The box turns green when it\'s been done.',
-    sticky: 'Tap the top of a box for more, the bottom for less. Tap again to push harder. The box turns green when it\'s been done; tap it to clear.',
+    auto: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. The box turns green when it\'s been done.',
+    sticky: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. The box turns green when it\'s been done; tap it to clear.',
   },
 };
 
@@ -271,10 +275,7 @@ function channelView(member, channel, pending, confirmed) {
   }
   const send = (direction) => (event) => {
     event.stopPropagation();
-    confirmations.delete(channel.id);
-    act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }, {
-      onRetry: () => { sendingRetry.add(channel.id); render(); },
-    }).finally(() => { if (sendingRetry.delete(channel.id)) render(); }));
+    sendRequest(member, channel, direction);
   };
   const badge = (direction) => (pending?.direction === direction ? el('span', { class: 'count', text: `×${pending.count}` }) : null);
   if (sendingRetry.has(channel.id) && !pending && !showDone) {
@@ -289,10 +290,17 @@ function channelView(member, channel, pending, confirmed) {
   return { channel, showDone, stateLine, send, badge, stateClass, label };
 }
 
+function sendRequest(member, channel, direction) {
+  confirmations.delete(channel.id);
+  act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }, {
+    onRetry: () => { sendingRetry.add(channel.id); render(); },
+  }).finally(() => { if (sendingRetry.delete(channel.id)) render(); }));
+}
+
 function renderRow(view) {
   const tap = (direction, text) =>
     el('button', { type: 'button', class: `tap ${direction}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [text, view.badge(direction)]);
-  const row = el('div', { class: `channel${view.stateClass}` }, [
+  const row = el('div', { class: `channel${view.stateClass}`, 'data-channel': view.channel.id }, [
     el('div', {}, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     tap('less', '−'),
     tap('more', '+'),
@@ -304,7 +312,7 @@ function renderRow(view) {
 function renderBox(view) {
   const half = (direction, arrow, position) =>
     el('button', { type: 'button', class: `half ${position}${view.badge(direction) ? ' active' : ''}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [arrow, view.badge(direction)]);
-  const box = el('div', { class: `box${view.stateClass}` }, [
+  const box = el('div', { class: `box${view.stateClass}`, 'data-channel': view.channel.id }, [
     half('more', '▲', 'up'),
     el('div', { class: 'middle' }, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     half('less', '▼', 'down'),
@@ -347,6 +355,7 @@ function render() {
   if (settingsOpen) renderMidiPanel(ui.midiPanel, midi, MIDI_LABELS);
   ui.autoDismiss.checked = settings.autoDismiss;
   ui.keepAwake.checked = settings.keepAwake;
+  ui.swipe.checked = settings.swipe;
   for (const input of ui.layoutInputs) input.checked = input.value === settings.layout;
   const member = currentMember();
   if (!member) {
@@ -385,6 +394,40 @@ ui.autoDismiss.addEventListener('change', () => {
   }
   render();
 });
+
+ui.swipe.addEventListener('change', () => {
+  settings.swipe = ui.swipe.checked;
+  writeStored(SETTINGS_KEY, settings);
+});
+
+// Swipe on a channel row or box: a quick flick up sends "more", down "less".
+let touchStart = null;
+ui.channels.addEventListener('touchstart', (event) => {
+  if (!settings.swipe || event.touches.length !== 1) return;
+  const target = event.target.closest('[data-channel]');
+  if (!target) return;
+  const touch = event.touches[0];
+  touchStart = { channelId: target.dataset.channel, x: touch.clientX, y: touch.clientY, at: Date.now() };
+}, { passive: true });
+ui.channels.addEventListener('touchend', (event) => {
+  const start = touchStart;
+  touchStart = null;
+  if (!start || !settings.swipe) return;
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  if (Date.now() - start.at > SWIPE_MAX_MS || Math.abs(dy) < SWIPE_MIN_PX || Math.abs(dy) < Math.abs(dx) * 1.5) return;
+  const member = currentMember();
+  const channel = member?.channels.find((c) => c.id === start.channelId);
+  if (!channel) return;
+  const direction = dy < 0 ? 'more' : 'less';
+  vibrate(30);
+  const element = ui.channels.querySelector(`[data-channel="${channel.id}"]`);
+  element?.classList.add(`swiped-${direction}`);
+  setTimeout(() => element?.classList.remove(`swiped-${direction}`), 350);
+  sendRequest(member, channel, direction);
+}, { passive: true });
+ui.channels.addEventListener('touchcancel', () => { touchStart = null; }, { passive: true });
 
 ui.keepAwake.addEventListener('change', () => {
   settings.keepAwake = ui.keepAwake.checked;

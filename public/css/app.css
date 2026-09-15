@@ -479,3 +479,8 @@ a.btn-link { display: inline-flex; align-items: center; min-height: 40px; paddin
   50% { background: #2f5cff; }
 }
 body.flash { animation: flash 600ms ease-in-out 3; }
+
+/* Swipe feedback: light up the matching button/half for a moment */
+.channel.swiped-more .tap.more, .box.swiped-more .half.up { filter: brightness(1.6); transform: scale(1.06); }
+.channel.swiped-less .tap.less, .box.swiped-less .half.down { filter: brightness(1.6); transform: scale(1.06); }
+.channel, .box { touch-action: pan-y; }
