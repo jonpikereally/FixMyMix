@@ -468,3 +468,14 @@ a.btn-link { display: inline-flex; align-items: center; min-height: 40px; paddin
 .join .options select { width: 100%; min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); padding: 0 10px; }
 
 .state .since { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+
+/* Presence, buzz, sending */
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #3a4152; margin-right: 8px; vertical-align: middle; box-shadow: 0 0 0 2px var(--panel); }
+.dot.on { background: var(--done); box-shadow: 0 0 0 2px var(--panel), 0 0 8px var(--done); }
+.member-card header .row { gap: 6px; }
+.state .sending { color: var(--muted); font-style: italic; }
+@keyframes flash {
+  0%, 100% { background: var(--bg); }
+  50% { background: #2f5cff; }
+}
+body.flash { animation: flash 600ms ease-in-out 3; }

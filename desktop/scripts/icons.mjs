@@ -125,11 +125,11 @@ const FADERS = [
   { x: 0.78, top: 0.28, knob: 0.68 },
 ];
 
-function trayLayers() {
+function trayLayers(alpha = 1) {
   const black = [0, 0, 0];
   return FADERS.flatMap(({ x, top, knob }) => [
-    { shape: roundedRect(x - 0.06, top, 0.12, 0.92 - top, 0.06), color: black },
-    { shape: circle(x, knob, 0.17), color: black },
+    { shape: roundedRect(x - 0.06, top, 0.12, 0.92 - top, 0.06), color: black, alpha },
+    { shape: circle(x, knob, 0.17), color: black, alpha },
   ]);
 }
 
@@ -149,6 +149,9 @@ function appLayers() {
 
 writeFileSync(path.join(OUT, 'trayTemplate.png'), png(16, 16, render(16, trayLayers(), 8)));
 writeFileSync(path.join(OUT, 'trayTemplate@2x.png'), png(32, 32, render(32, trayLayers(), 8)));
+// Dimmed variant shown while the server is stopped.
+writeFileSync(path.join(OUT, 'trayStoppedTemplate.png'), png(16, 16, render(16, trayLayers(0.4), 8)));
+writeFileSync(path.join(OUT, 'trayStoppedTemplate@2x.png'), png(32, 32, render(32, trayLayers(0.4), 8)));
 
 const appIcons = [32, 64, 128, 256, 512, 1024].map((size) => ({
   size,
@@ -156,4 +159,4 @@ const appIcons = [32, 64, 128, 256, 512, 1024].map((size) => ({
 }));
 writeFileSync(path.join(OUT, 'icon.icns'), icns(appIcons));
 writeFileSync(path.join(OUT, 'icon.png'), appIcons.find((i) => i.size === 512).data);
-console.log('Wrote desktop/trayTemplate.png, trayTemplate@2x.png, icon.icns, icon.png');
+console.log('Wrote desktop/trayTemplate(.png,@2x), trayStoppedTemplate(.png,@2x), icon.icns, icon.png');

@@ -1,4 +1,4 @@
-import { watchState, post, toast, el, vibrate, ago } from './net.js';
+import { watchState, post, toast, el, vibrate, ago, keepScreenAwake, wakeLockSupported } from './net.js';
 import { glyph } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 
@@ -7,7 +7,7 @@ const withGlyph = (item) => (glyph(item.icon) ? `${glyph(item.icon)} ${item.name
 const MEMBER_KEY = 'fixmymix.memberId';
 const SETTINGS_KEY = 'fixmymix.settings';
 const CONFIRM_MS = 8000;
-const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows' };
+const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true };
 const LAYOUTS = new Set(['rows', 'boxes']);
 
 const ui = {
@@ -18,6 +18,8 @@ const ui = {
   settingsBtn: document.getElementById('settingsBtn'),
   settings: document.getElementById('settings'),
   autoDismiss: document.getElementById('autoDismiss'),
+  keepAwake: document.getElementById('keepAwake'),
+  keepAwakeHint: document.getElementById('keepAwakeHint'),
   layoutInputs: document.querySelectorAll('input[name="layout"]'),
   offline: document.getElementById('offline'),
   picker: document.getElementById('picker'),
@@ -49,6 +51,9 @@ const messageConfirmations = new Map();
 const seenDeskMessages = new Set();
 
 const confirmUntil = () => (settings.autoDismiss ? Date.now() + CONFIRM_MS : Infinity);
+// Channels whose tap is being retried after a Wi-Fi blip ("Sending…").
+const sendingRetry = new Set();
+let stream = null;
 
 // MIDI drives a highlighted channel: next/prev move it, up/down arm a
 // direction, confirm sends. Only drawn once a controller is bound.
@@ -120,6 +125,8 @@ function writeStored(key, value) {
 function saveMember(id) {
   memberId = id;
   writeStored(MEMBER_KEY, id);
+  // The stream announces who this device is (presence on the board).
+  stream?.reconnect();
 }
 
 function currentMember() {
@@ -265,9 +272,14 @@ function channelView(member, channel, pending, confirmed) {
   const send = (direction) => (event) => {
     event.stopPropagation();
     confirmations.delete(channel.id);
-    act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }));
+    act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }, {
+      onRetry: () => { sendingRetry.add(channel.id); render(); },
+    }).finally(() => { if (sendingRetry.delete(channel.id)) render(); }));
   };
   const badge = (direction) => (pending?.direction === direction ? el('span', { class: 'count', text: `×${pending.count}` }) : null);
+  if (sendingRetry.has(channel.id) && !pending && !showDone) {
+    stateLine.replaceChildren(el('span', { class: 'sending', text: 'Sending…' }));
+  }
   const isCursor = midi.active() && member.channels[cursor] === channel;
   if (isCursor && armed) {
     stateLine.replaceChildren(el('span', { class: 'armed', text: `${armed === 'more' ? '▲ More' : '▼ Less'} armed — confirm to send` }));
@@ -334,6 +346,7 @@ function render() {
   ui.settings.classList.toggle('hidden', !settingsOpen);
   if (settingsOpen) renderMidiPanel(ui.midiPanel, midi, MIDI_LABELS);
   ui.autoDismiss.checked = settings.autoDismiss;
+  ui.keepAwake.checked = settings.keepAwake;
   for (const input of ui.layoutInputs) input.checked = input.value === settings.layout;
   const member = currentMember();
   if (!member) {
@@ -373,16 +386,38 @@ ui.autoDismiss.addEventListener('change', () => {
   render();
 });
 
+ui.keepAwake.addEventListener('change', () => {
+  settings.keepAwake = ui.keepAwake.checked;
+  writeStored(SETTINGS_KEY, settings);
+  keepScreenAwake(settings.keepAwake);
+});
+if (!wakeLockSupported()) {
+  ui.keepAwake.disabled = true;
+  ui.keepAwakeHint.textContent = 'Not available in this browser — turn off Auto-Lock in the phone\'s settings for the show instead.';
+}
+keepScreenAwake(settings.keepAwake);
+
 ui.composer.addEventListener('submit', (event) => {
   event.preventDefault();
   const member = currentMember();
   const text = ui.messageText.value.trim();
   if (!member || !text) return;
+  const button = ui.composer.querySelector('button');
   act(async () => {
-    await post('/api/messages', { memberId: member.id, text });
+    await post('/api/messages', { memberId: member.id, text }, { onRetry: () => { button.textContent = 'Sending…'; } });
     ui.messageText.value = '';
-  });
+  }).finally(() => { button.textContent = 'Send'; });
 });
+
+// The desk's "buzz": vibrate and flash so the whole band can be checked at once.
+let flashTimer = null;
+function buzz() {
+  vibrate([300, 100, 300, 100, 300]);
+  document.body.classList.add('flash');
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => document.body.classList.remove('flash'), 1800);
+  toast('The desk is buzzing you 👋');
+}
 
 for (const input of ui.layoutInputs) {
   input.addEventListener('change', () => {
@@ -397,7 +432,8 @@ for (const input of ui.layoutInputs) {
 // remembers the permission), so the controller works without opening settings.
 if (Object.keys(midi.bindings()).length) midi.connect();
 
-watchState({
+stream = watchState({
+  url: () => (memberId ? `/api/stream?memberId=${encodeURIComponent(memberId)}` : '/api/stream'),
   onState: (snapshot) => {
     state = snapshot;
     render();
@@ -405,6 +441,9 @@ watchState({
   onStatus: (live) => {
     ui.status.classList.toggle('live', live);
     ui.offline.classList.toggle('hidden', live);
+  },
+  onEvent: (name) => {
+    if (name === 'buzz') buzz();
   },
 });
 

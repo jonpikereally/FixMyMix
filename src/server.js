@@ -156,14 +156,14 @@ async function serveStatic(res, urlPath) {
   send(res, 200, data, { 'Content-Type': CONTENT_TYPES[path.extname(file)] ?? 'application/octet-stream' });
 }
 
-function attachStream(hub, req, res) {
+function attachStream(hub, req, res, memberId) {
   res.writeHead(200, {
     ...SECURITY_HEADERS,
     'Content-Type': 'text/event-stream; charset=utf-8',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
-  const detach = hub.attach((chunk) => res.write(chunk));
+  const detach = hub.attach((chunk) => res.write(chunk), { memberId });
   req.on('close', detach);
 }
 
@@ -171,16 +171,17 @@ function createRequestListener({ api, log, info }) {
   return async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (url.pathname === '/api/info') return sendJson(res, { status: 200, json: { mode: 'lan', ...info() } });
+      if (url.pathname === '/api/info') return sendJson(res, { status: 200, json: { mode: 'lan', devices: api.hub.size(), ...info() } });
       if (url.pathname.startsWith('/api/')) {
         const result = await api.handle({
           method: req.method,
           path: url.pathname.slice('/api'.length),
+          query: Object.fromEntries(url.searchParams),
           cookies: parseCookies(req.headers.cookie),
           ip: req.socket.remoteAddress ?? 'unknown',
           json: () => readBody(req),
         });
-        if (result.sse) return attachStream(api.hub, req, res);
+        if (result.sse) return attachStream(api.hub, req, res, result.memberId);
         return sendJson(res, result);
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new ApiError(405, 'Method not allowed.');
@@ -281,6 +282,7 @@ export async function start({
     httpsPort: actualHttpsPort,
     passcode: config.passcode,
     dataDir,
+    devices: () => api.hub.size(),
     get urls() {
       return urls();
     },
