@@ -13,5 +13,5 @@ if (loadTls(dataDir)) {
 } else {
   const files = await createCertificate(dataDir);
   console.log(`Wrote ${files.cert} and ${files.key}.`);
-  console.log('Restart FixMyMix and it will also listen on https:// (port 8443 by default).');
+  console.log('Restart FixMyMix and the same address will also work as https://.');
 }

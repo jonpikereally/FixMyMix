@@ -125,7 +125,7 @@ const actions = {
         type: 'info',
         message: urls.length ? 'HTTPS is on.' : 'Certificate created, but https did not start.',
         detail: urls.length
-          ? `Devices with a MIDI controller open:\n${urls.join('\n')}\n\nThe first time, the browser will warn about the certificate — choose Advanced → Proceed.`
+          ? `The same address now also works as https:// —\n${urls.join('\n')}\n\nThe first time, a browser warns about the certificate: choose Advanced → Proceed (Safari: Show Details → visit this website).`
           : 'Check the log for the reason.',
       });
     } catch (e) {

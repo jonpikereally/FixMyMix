@@ -19,9 +19,10 @@ The first mode is **Mix mode**: performers ask the engineer for more or less of 
 - **MIDI controllers** — both pages can *MIDI learn* five actions (⚙ on the stage page, Setup on the admin page), per device: a note, a CC (fires when it crosses 64, so a 0/127 foot switch fires once per press) or a program change.
   - Stage: *next* / *previous* move a highlight through the channels, *up* / *down* arm more or less on it, *confirm* sends — so a slip of the foot doesn't fire a request. With nothing armed, *confirm* answers a desk message or clears a green confirmation.
   - Admin: *next* / *previous* step through pending items, *up* / *down* jump between members, *confirm* marks the highlighted one done.
-  - Browsers only expose Web MIDI on **secure pages** (https or `localhost`), and **Safari has none at all** — so no MIDI on iPhone/iPad. On the Mac running FixMyMix, open `http://localhost:8080` and it just works. For a stage laptop or Android device, turn on HTTPS: `npm run cert` (or the menu-bar item *Set up HTTPS*) creates a self-signed certificate and the server also listens on `https://<address>:8443`; each device accepts the certificate once (Advanced → Proceed). Chrome alternatively lets you mark the http address as secure at `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
+  - Browsers only expose Web MIDI on **secure pages** (https or `localhost`), and **Safari has none at all** — so no MIDI on iPhone/iPad. On the Mac running FixMyMix, open `http://localhost:8080` and it just works. For a stage laptop or Android device, use the `https://` form of the same address — the server creates a self-signed certificate on first start (or `npm run cert` / the menu-bar item *Set up HTTPS*), and each device accepts it once (Advanced → Proceed). Chrome alternatively lets you mark the http address as secure at `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
 - Members and channels can carry an **icon** (🎤 🎸 🎻 🥁 🎹 🎵 🎶 🎺 🎷 🪘 🎙 🎧 🔊 🎛 ✨), shown on the stage page and the board. Icons are guessed from the name as you type (*Kick* → 🥁) and can be picked explicitly in the roster editor. They're emoji, so nothing is downloaded.
 - Everything is pushed live over Server-Sent Events with a polling fallback, so a phone that wakes from sleep catches up straight away.
+- One port serves both `http://` and `https://`. Newer iPhones try https first even for an http QR code; with the server's self-signed certificate that simply works (accept it once), and without one the attempt is refused cleanly so the phone falls back to http.
 
 ## Running it
 
@@ -98,7 +99,7 @@ The admin board is just a web page too, so it can run on an iPad (or a phone, or
 | `PORT` | `8080` | Port to listen on; if it's taken (AbleSet also likes 8080) the next free one up to +9 is used, and every address shown carries the real port |
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `ADMIN_PASSCODE` | — | Forces the admin passcode at startup (4–12 digits); otherwise the last one set in Setup is used, `1234` to begin with |
-| `HTTPS_PORT` | `8443` | Port for https, used only when `data/key.pem` and `data/cert.pem` exist (`npm run cert`) |
+| `FIXMYMIX_AUTO_CERT` | `1` | Set to `0` to stop the server creating a self-signed certificate on first start |
 | `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests, messages), `config.json` (passcode, session secret) and the optional certificate live |
 
 State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. The passcode starts as `1234` — the lock is there to stop a performer wandering into the board by accident on a private stage Wi-Fi, not to resist an attacker. Change it in **Setup → Admin passcode**; it's saved with the show, other admin devices are logged out, and the menu bar shows the new one. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
