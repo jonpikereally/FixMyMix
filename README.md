@@ -65,7 +65,7 @@ Every tagged version has a ready-made installer on the [Releases page](https://g
 
 First launch on a new Mac: the app isn't notarised, so macOS will object once. **Right-click FixMyMix → Open**; on macOS 15 or later you may instead need **System Settings → Privacy & Security → Open Anyway** after the first attempt. (Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/FixMyMix.app`.) It also asks whether FixMyMix may accept incoming connections — **Allow**.
 
-To make an installer yourself on a Mac that has the source: `npm run app:dmg` builds a universal (Intel + Apple Silicon) app and writes `~/Desktop/FixMyMix-build/FixMyMix-<version>.dmg`. Tagging a commit `vX.Y.Z` and pushing the tag makes GitHub build and publish it (`.github/workflows/release.yml`).
+To make an installer yourself on a Mac that has the source: `npm run app:dmg` builds a universal (Intel + Apple Silicon) app and writes `~/Desktop/FixMyMix-build/FixMyMix-<version>.dmg`. GitHub builds and publishes it too: push a `vX.Y.Z` tag, or run the *Release* workflow from the Actions tab, which tags the current version from `package.json` and publishes the release (`.github/workflows/release.yml`).
 
 ### From the terminal
 
