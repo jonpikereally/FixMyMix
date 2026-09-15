@@ -239,7 +239,15 @@ function createDualServer(listener, tls) {
       socket.pause();
       socket.unshift(first);
       if (first[0] === 0x16) {
-        if (!secure) return socket.destroy();
+        if (!secure) {
+          // No certificate: answer the ClientHello with a proper fatal
+          // handshake_failure alert, then close. A clean "this server does
+          // not do TLS" is what browsers' https-first upgrades fall back from.
+          socket.resume();
+          socket.end(Buffer.from([0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x28]));
+          socket.once('end', () => socket.destroy());
+          return;
+        }
         secure.emit('connection', socket);
       } else {
         plain.emit('connection', socket);

@@ -23,6 +23,7 @@ The first mode is **Mix mode**: performers ask the engineer for more or less of 
 - Members and channels can carry an **icon** (🎤 🎸 🎻 🥁 🎹 🎵 🎶 🎺 🎷 🪘 🎙 🎧 🔊 🎛 ✨), shown on the stage page and the board. Icons are guessed from the name as you type (*Kick* → 🥁) and can be picked explicitly in the roster editor. They're emoji, so nothing is downloaded.
 - Everything is pushed live over Server-Sent Events with a polling fallback, so a phone that wakes from sleep catches up straight away.
 - The server sits on port 80 by default, so the address is just `http://192.168.1.23`. Newer iPhones try https first even for an http QR code; with nothing on port 443 that attempt fails instantly and Safari falls back to http with no warning page. https is only switched on when you set it up for MIDI (then 443 is served too, and the same port answers both).
+- **Sharing the laptop with AbleSet** (which owns port 80): FixMyMix then runs on 8080, and a phone's https attempt lands on FixMyMix's own port. Two behaviours are available, switched in the menu bar: with HTTPS **off** (default) the attempt is answered with a clean TLS "handshake failure" — the signal browsers' https-first upgrades fall back from — and the phone should drop to http by itself; with HTTPS **on** (*Set up HTTPS*) the https page loads behind Safari's one-time certificate warning (*Show Details → visit this website*) and works from then on. Try the default first; if a phone still stalls, turn HTTPS on. *Turn off HTTPS* reverses it.
 
 ## Running it
 

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
-import { createCertificate } from '../src/tls.js';
+import { createCertificate, removeCertificate } from '../src/tls.js';
 import { buildMenu } from './menu.js';
 import { compareVersions, fetchLatest, download, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
@@ -193,6 +193,16 @@ const actions = {
   async quit() {
     await stopServer();
     app.exit(0);
+  },
+  async turnOffHttps() {
+    try {
+      removeCertificate(dataDir());
+      await stopServer();
+      await startServer();
+      log('HTTPS turned off.');
+    } catch (e) {
+      dialog.showErrorBox('Could not turn off HTTPS', e.message);
+    }
   },
   async setupHttps() {
     try {

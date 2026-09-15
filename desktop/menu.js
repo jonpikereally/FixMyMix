@@ -27,7 +27,9 @@ export function buildMenu(state, actions) {
     items.push({ label: 'Open stage view', click: () => actions.open(`${localUrl}/stage`) });
     items.push({ label: 'Show QR code for performers', click: () => actions.open(`${localUrl}/join`) });
     items.push({ label: 'Show QR code for AbleSet', click: () => actions.open(`${localUrl}/join?app=ableset`) });
-    if (!(state.httpsUrls ?? []).length) {
+    if ((state.httpsUrls ?? []).length) {
+      items.push({ label: 'Turn off HTTPS', click: () => actions.turnOffHttps() });
+    } else {
       items.push({ label: 'Set up HTTPS (for MIDI on other devices)…', click: () => actions.setupHttps() });
     }
   }

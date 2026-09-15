@@ -5,7 +5,7 @@ import { buildMenu, updateItems } from '../desktop/menu.js';
 function actionsSpy() {
   const calls = [];
   const spy = (name) => (...args) => calls.push([name, ...args]);
-  return { calls, actions: { copy: spy('copy'), open: spy('open'), start: spy('start'), stop: spy('stop'), toggleLogin: spy('toggleLogin'), quit: spy('quit'), setupHttps: spy('setupHttps'), toggleKeepAwake: spy('toggleKeepAwake'), openLog: spy('openLog'), checkForUpdates: spy('checkForUpdates'), downloadUpdate: spy('downloadUpdate'), installUpdate: spy('installUpdate') } };
+  return { calls, actions: { copy: spy('copy'), open: spy('open'), start: spy('start'), stop: spy('stop'), toggleLogin: spy('toggleLogin'), quit: spy('quit'), setupHttps: spy('setupHttps'), turnOffHttps: spy('turnOffHttps'), toggleKeepAwake: spy('toggleKeepAwake'), openLog: spy('openLog'), checkForUpdates: spy('checkForUpdates'), downloadUpdate: spy('downloadUpdate'), installUpdate: spy('installUpdate') } };
 }
 
 const labels = (items) => items.map((i) => i.label ?? '---');
@@ -59,7 +59,8 @@ test('with https on, the menu lists the https address and drops the setup item',
   assert.ok(find(items, 'https://10.0.0.5:8443  (MIDI)'));
   assert.equal(find(items, 'Set up HTTPS (for MIDI on other devices)…'), undefined);
   find(items, 'https://10.0.0.5:8443  (MIDI)').click();
-  assert.deepEqual(calls, [['copy', 'https://10.0.0.5:8443']]);
+  find(items, 'Turn off HTTPS').click();
+  assert.deepEqual(calls, [['copy', 'https://10.0.0.5:8443'], ['turnOffHttps']]);
 });
 
 test('starting menu disables the start item', () => {

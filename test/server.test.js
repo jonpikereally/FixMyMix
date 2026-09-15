@@ -42,14 +42,18 @@ test('by default there is no certificate: a TLS attempt is refused outright, pla
   assert.deepEqual(running.httpsUrls, []);
   assert.equal((await get(http, running.port)).status, 200);
   await assert.rejects(get(https, running.port, { rejectUnauthorized: false }));
-  // The socket is closed as soon as the ClientHello arrives, not left hanging.
-  const closed = await new Promise((resolve) => {
+  // The ClientHello is answered with a fatal handshake_failure alert, then closed.
+  const reply = await new Promise((resolve) => {
+    const chunks = [];
     const socket = net.connect(running.port, '127.0.0.1', () => socket.write(Buffer.from([0x16, 0x03, 0x01, 0x00, 0x05, 0x01])));
-    socket.on('close', () => resolve(true));
+    socket.on('data', (c) => chunks.push(c));
+    const done = () => { socket.destroy(); resolve(Buffer.concat(chunks)); };
+    socket.on('end', done);
+    socket.on('close', done);
     socket.on('error', () => {});
-    setTimeout(() => resolve(false), 3000);
+    setTimeout(done, 3000).unref();
   });
-  assert.equal(closed, true);
+  assert.deepEqual([...reply], [0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x28]);
 });
 
 test('a client that connects and says nothing is dropped after the idle timeout', async (t) => {
