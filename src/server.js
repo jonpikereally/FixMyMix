@@ -81,11 +81,15 @@ function loadConfig(dataDir, passcodeOverride, log) {
   fs.mkdirSync(dataDir, { recursive: true });
   const stored = readJson(path.join(dataDir, 'config.json'), {}, log);
   const valid = (value) => PASSCODE_PATTERN.test(String(value ?? ''));
+  // Only a passcode chosen in Setup is honoured; config files from early
+  // builds carry a leftover random one that must not resurface.
+  const chosen = stored.passcodeChosen === true && valid(stored.passcode);
   const config = {
     secret: typeof stored.secret === 'string' && stored.secret.length >= 32 ? stored.secret : randomSecret(),
-    passcode: valid(passcodeOverride) ? String(passcodeOverride) : valid(stored.passcode) ? String(stored.passcode) : DEFAULT_PASSCODE,
+    passcode: valid(passcodeOverride) ? String(passcodeOverride) : chosen ? String(stored.passcode) : DEFAULT_PASSCODE,
+    passcodeChosen: chosen,
   };
-  if (config.secret !== stored.secret || config.passcode !== stored.passcode) saveConfig(dataDir, config);
+  if (config.secret !== stored.secret || config.passcode !== stored.passcode || config.passcodeChosen !== stored.passcodeChosen) saveConfig(dataDir, config);
   return config;
 }
 
@@ -291,7 +295,7 @@ export async function start({
     store,
     auth,
     onCredentials: (credentials) => {
-      saveConfig(dataDir, credentials);
+      saveConfig(dataDir, { ...credentials, passcodeChosen: true });
       log('Admin passcode changed.');
     },
   });

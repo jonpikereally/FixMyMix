@@ -60,3 +60,17 @@ test('a client that connects and says nothing is dropped after the idle timeout'
   assert.equal(socket.destroyed, false);
   socket.destroy();
 });
+
+test('a leftover passcode from an early config file is ignored; one chosen in Setup persists', async (t) => {
+  const dataDir = tmp();
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ secret: 's'.repeat(64), passcode: '384723' }));
+  const first = await start({ port: 0, host: '127.0.0.1', dataDir, autoCert: false, log: quiet });
+  assert.equal(first.passcode, '1234');
+  await first.close();
+
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ secret: 's'.repeat(64), passcode: '2468', passcodeChosen: true }));
+  const second = await start({ port: 0, host: '127.0.0.1', dataDir, autoCert: false, log: quiet });
+  t.after(() => second.close());
+  assert.equal(second.passcode, '2468');
+  assert.equal((await start({ port: 0, host: '127.0.0.1', dataDir, autoCert: false, passcode: '5555', log: quiet }).then(async (r) => { const p = r.passcode; await r.close(); return p; })), '5555');
+});
