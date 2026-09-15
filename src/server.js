@@ -171,7 +171,7 @@ function attachStream(hub, req, res, memberId) {
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
-  const detach = hub.attach((chunk) => res.write(chunk), { memberId });
+  const detach = hub.attach((chunk) => res.write(chunk), { memberId, end: () => res.end() });
   req.on('close', detach);
 }
 
@@ -232,7 +232,10 @@ function listen(server, port, host) {
 function createDualServer(listener, tls) {
   const plain = http.createServer(listener);
   const secure = tls ? https.createServer(tls, listener) : null;
+  const sockets = new Set();
   const front = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
     socket.setTimeout(10_000, () => socket.destroy());
     socket.once('data', (first) => {
       socket.setTimeout(0);
@@ -260,7 +263,12 @@ function createDualServer(listener, tls) {
     plain.close();
     secure?.close();
   });
-  return { front, plain, secure, hasTls: Boolean(secure) };
+  // Closing must not wait for idle keep-alive connections or live streams.
+  const destroyAll = () => {
+    for (const socket of sockets) socket.destroy();
+    sockets.clear();
+  };
+  return { front, plain, secure, hasTls: Boolean(secure), destroyAll };
 }
 
 export const DEFAULT_PORT = 80;
@@ -373,7 +381,10 @@ export async function start({
     async close() {
       api.hub.close();
       persister.stop();
-      await new Promise((resolve) => server.front.close(resolve));
+      await new Promise((resolve) => {
+        server.front.close(resolve);
+        server.destroyAll();
+      });
       await persister.flush();
     },
   };
