@@ -2,6 +2,7 @@
 // http module, and the tests call it directly. Paths are relative to /api.
 
 import { StoreError, MAX_MEMBERS, MAX_CHANNELS } from './state.js';
+import { Setups, packSetup, setupFilename } from './setups.js';
 import { PASSCODE_PATTERN } from './auth.js';
 
 export const HEARTBEAT_MS = 15_000;
@@ -134,7 +135,7 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
  * @param {boolean} [options.secureCookies]  true when served over HTTPS
  * @param {(credentials: { passcode: string, secret: string }) => (void|Promise<void>)} [options.onCredentials]  persist a changed passcode
  */
-export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies = false, onCredentials = () => {} }) {
+export function createApi({ store, auth, setups = new Setups(), cookieName = 'fmm_admin', secureCookies = false, onCredentials = () => {} }) {
   const hub = createHub(store);
   // Results of recent POSTs by client-supplied opId, so a retried tap whose
   // first attempt actually landed is answered again rather than applied twice.
@@ -251,6 +252,58 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
         messaging: body.messaging === undefined ? undefined : body.messaging === true,
         buzzDefault: body.buzzDefault === undefined ? undefined : body.buzzDefault === true,
       }));
+    },
+
+    // --- Saved band setups: roster + show settings under a name, plus JSON export/import.
+    'GET /admin/setups': async (req) => {
+      await requireAdmin(req);
+      return ok({ setups: setups.summaries() });
+    },
+
+    'POST /admin/setups': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      const saved = setups.save({ name: String(body.name ?? ''), show: store.show, members: store.members });
+      return ok({ saved: { id: saved.id, name: saved.name }, setups: setups.summaries() });
+    },
+
+    'POST /admin/setups/load': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      const setup = setups.get(String(body.id ?? ''));
+      store.setRoster(setup.members);
+      return ok({ loaded: { id: setup.id, name: setup.name }, ...store.setShow(setup.show) });
+    },
+
+    'POST /admin/setups/delete': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      const removed = setups.remove(String(body.id ?? ''));
+      return ok({ removed: { id: removed.id, name: removed.name }, setups: setups.summaries() });
+    },
+
+    // A file download: the saved setup with that id, or the live roster when none is given.
+    'GET /admin/setups/export': async (req) => {
+      await requireAdmin(req);
+      const id = req.query?.id;
+      const setup = id
+        ? setups.get(String(id))
+        : packSetup({ id: undefined, name: store.show.name, savedAt: Date.now(), show: store.show, members: store.members });
+      const { id: _omit, ...file } = setup;
+      return ok(file, { 'Content-Disposition': `attachment; filename="${setupFilename(setup.name)}"` });
+    },
+
+    'POST /admin/setups/import': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      const fallbackName = String(body.filename ?? '').replace(/\.json$/i, '').replace(/^FixMyMix-/i, '').replace(/-+/g, ' ').trim() || 'Imported setup';
+      const setup = setups.import(body.setup, { fallbackName });
+      let snapshot = {};
+      if (body.load === true) {
+        store.setRoster(setup.members);
+        snapshot = store.setShow(setup.show);
+      }
+      return ok({ imported: { id: setup.id, name: setup.name, loaded: body.load === true }, setups: setups.summaries(), ...snapshot });
     },
 
     'POST /admin/history/clear': async (req) => {

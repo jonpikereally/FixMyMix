@@ -11,8 +11,8 @@ function setup() {
   store.quickSetup(2, 2);
   const auth = createAuth({ secret: 'a'.repeat(64), passcode: PASSCODE });
   const api = createApi({ store, auth });
-  const call = (method, path, { body = {}, cookies = {}, ip = '10.0.0.1' } = {}) =>
-    api.handle({ method, path, cookies, ip, json: async () => body });
+  const call = (method, path, { body = {}, cookies = {}, ip = '10.0.0.1', query = {} } = {}) =>
+    api.handle({ method, path, cookies, ip, query, json: async () => body });
   return { store, api, call };
 }
 
@@ -258,4 +258,56 @@ test('hub.close() ends every attached stream', () => {
   api.hub.close();
   assert.deepEqual(ended.sort(), ['a', 'b']);
   assert.equal(api.hub.size(), 0);
+});
+
+test('band setups: save, list, load, export as a download, import, delete — admin only', async () => {
+  const { store, call } = setup();
+  for (const [method, path] of [['GET', '/admin/setups'], ['POST', '/admin/setups'], ['POST', '/admin/setups/load'], ['GET', '/admin/setups/export'], ['POST', '/admin/setups/import'], ['POST', '/admin/setups/delete']]) {
+    await assert.rejects(call(method, path, { body: { name: 'x' } }), (e) => e.status === 401, path);
+  }
+  const cookies = await login(call);
+  await call('POST', '/admin/show', { body: { name: 'Friday', messaging: true, buzzDefault: true }, cookies });
+  const originalIds = store.members.map((m) => m.id);
+
+  await assert.rejects(call('POST', '/admin/setups', { body: { name: '   ' }, cookies }).then((r) => { if (r.json.saved.name !== 'Untitled setup') throw new Error('x'); return Promise.reject(Object.assign(new Error('named'), { named: true })); }), (e) => e.named, 'a blank name falls back to Untitled setup');
+  const saved = await call('POST', '/admin/setups', { body: { name: 'Friday trio' }, cookies });
+  assert.equal(saved.json.saved.name, 'Friday trio');
+  assert.equal(saved.json.setups.length, 2);
+  const listed = await call('GET', '/admin/setups', { cookies });
+  assert.deepEqual(listed.json.setups.map((s) => s.name).sort(), ['Friday trio', 'Untitled setup']);
+
+  // change the live show, then load the setup back: roster ids and show settings return
+  await call('POST', '/admin/roster', { body: { memberCount: 1, channelCount: 1 }, cookies });
+  await call('POST', '/admin/show', { body: { name: 'Other', messaging: false }, cookies });
+  assert.equal(store.members.length, 1);
+  const loaded = await call('POST', '/admin/setups/load', { body: { id: saved.json.saved.id }, cookies });
+  assert.equal(loaded.json.loaded.name, 'Friday trio');
+  assert.deepEqual(store.members.map((m) => m.id), originalIds);
+  assert.equal(store.show.name, 'Friday');
+  assert.equal(store.show.messaging, true);
+  await assert.rejects(call('POST', '/admin/setups/load', { body: { id: 'nope' }, cookies }), (e) => e.status === 409 && e.code === 'unknown_setup');
+
+  // export: a saved one by id, or the live roster; always a file download
+  const file = await call('GET', '/admin/setups/export', { query: { id: saved.json.saved.id }, cookies });
+  assert.equal(file.headers['Content-Disposition'], 'attachment; filename="FixMyMix-friday-trio.json"');
+  assert.equal(file.json.app, 'FixMyMix');
+  assert.equal(file.json.id, undefined, 'ids are minted on import, not carried in the file');
+  assert.equal(file.json.members.length, 2);
+  const live = await call('GET', '/admin/setups/export', { cookies });
+  assert.equal(live.json.name, 'Friday');
+  assert.equal(live.headers['Content-Disposition'], 'attachment; filename="FixMyMix-friday.json"');
+
+  // import the exported file (round trip), as a saved copy and then loaded
+  const imported = await call('POST', '/admin/setups/import', { body: { setup: file.json, filename: 'FixMyMix-friday-trio.json' }, cookies });
+  assert.equal(imported.json.imported.name, 'Friday trio (2)');
+  assert.equal(imported.json.imported.loaded, false);
+  const bare = await call('POST', '/admin/setups/import', { body: { setup: { members: [{ name: 'Solo', channels: [{ name: 'Vox' }] }] }, filename: 'FixMyMix-tour-band.json', load: true }, cookies });
+  assert.equal(bare.json.imported.name, 'tour band');
+  assert.equal(bare.json.imported.loaded, true);
+  assert.equal(store.members[0].name, 'Solo');
+  await assert.rejects(call('POST', '/admin/setups/import', { body: { setup: { hello: 1 } }, cookies }), (e) => e.status === 409 && e.code === 'bad_setup');
+
+  const removed = await call('POST', '/admin/setups/delete', { body: { id: saved.json.saved.id }, cookies });
+  assert.equal(removed.json.removed.name, 'Friday trio');
+  assert.equal(removed.json.setups.length, 3);
 });
