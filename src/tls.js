@@ -1,7 +1,7 @@
-// Optional HTTPS for LAN mode. Browsers only expose Web MIDI on secure pages,
-// so a stage laptop with a controller needs an https:// address. The cert is
-// self-signed (each device accepts it once); openssl ships with macOS and most
-// Linux distributions.
+// HTTPS for LAN mode, on the same port as http. Newer phones try https first,
+// and browsers only expose Web MIDI on secure pages. The cert is self-signed
+// (each device accepts it once); openssl ships with macOS and most Linux
+// distributions, and the server creates the cert itself when it can.
 
 import fs from 'node:fs';
 import path from 'node:path';
