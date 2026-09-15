@@ -12,7 +12,7 @@ import { buildMenu } from './menu.js';
 import { compareVersions, fetchLatest, download, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.PORT) || 8080;
+const PORT = Number(process.env.PORT) || 80;
 const SMOKE = process.env.FIXMYMIX_SMOKE === '1';
 const WATCHDOG_MS = 10_000;
 const LOG_MAX_BYTES = 1024 * 1024;
@@ -204,7 +204,7 @@ const actions = {
         type: 'info',
         message: urls.length ? 'HTTPS is on.' : 'Certificate created, but https did not start.',
         detail: urls.length
-          ? `The same address now also works as https:// —\n${urls.join('\n')}\n\nThe first time, a browser warns about the certificate: choose Advanced → Proceed (Safari: Show Details → visit this website).`
+          ? `Devices with a MIDI controller open:\n${urls.join('\n')}\n\nThe first time, the browser warns about the certificate: choose Advanced → Proceed (Safari: Show Details → visit this website). Phones keep using the plain http:// address from the QR code.`
           : 'Check the log for the reason.',
       });
     } catch (e) {
