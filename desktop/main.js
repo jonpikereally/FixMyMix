@@ -1,8 +1,9 @@
 // Menu-bar app: runs the LAN server in-process and shows the address and
 // passcode in the tray. No windows; everything happens in the browser.
 
-import { app, Tray, Menu, nativeImage, clipboard, shell, dialog } from 'electron';
+import { app, Tray, Menu, nativeImage, clipboard, shell, dialog, powerSaveBlocker } from 'electron';
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
@@ -12,14 +13,70 @@ import { buildMenu } from './menu.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 8080;
 const SMOKE = process.env.FIXMYMIX_SMOKE === '1';
+const WATCHDOG_MS = 10_000;
+const LOG_MAX_BYTES = 1024 * 1024;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let tray = null;
+let icons = null;
 let running = null;
 let starting = false;
 let error = null;
 let lastMenuKey = '';
+let blockerId = null;
+let watchdogFailures = 0;
+let restarts = 0;
+
+// --- Log file: what happened, for when something goes wrong at a gig. -------
+const logFile = () => path.join(app.getPath('userData'), 'fixmymix.log');
+function log(line) {
+  const stamped = `${new Date().toISOString()} ${line}`;
+  console.log(stamped);
+  try {
+    fs.appendFileSync(logFile(), `${stamped}\n`);
+  } catch {
+    // Logging must never take the app down.
+  }
+}
+function trimLog() {
+  try {
+    if (fs.statSync(logFile()).size > LOG_MAX_BYTES) fs.truncateSync(logFile(), 0);
+  } catch {
+    // No log yet.
+  }
+}
+
+// --- Settings kept by the app itself (the server has its own data dir). ------
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+let settings = { keepAwake: true };
+function loadSettings() {
+  try {
+    settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) };
+  } catch {
+    // First run.
+  }
+}
+function saveSettings() {
+  try {
+    fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2));
+  } catch (e) {
+    log(`Could not save settings: ${e.message}`);
+  }
+}
+
+// --- Keep the Mac from sleeping while the board is live. ---------------------
+function syncPowerAssertion() {
+  const want = Boolean(running) && settings.keepAwake;
+  if (want && blockerId === null) {
+    blockerId = powerSaveBlocker.start('prevent-app-suspension');
+    log('Keeping the Mac awake while the server runs.');
+  } else if (!want && blockerId !== null) {
+    powerSaveBlocker.stop(blockerId);
+    blockerId = null;
+    log('Released the keep-awake assertion.');
+  }
+}
 
 function state() {
   return {
@@ -30,6 +87,8 @@ function state() {
     httpsUrls: running?.httpsUrls ?? [],
     passcode: running?.passcode ?? null,
     port: running?.port ?? PORT,
+    devices: running?.devices() ?? 0,
+    keepAwake: settings.keepAwake,
     loginItem: app.getLoginItemSettings().openAtLogin,
   };
 }
@@ -42,6 +101,15 @@ const actions = {
   toggleLogin() {
     app.setLoginItemSettings({ openAtLogin: !app.getLoginItemSettings().openAtLogin });
     refresh(true);
+  },
+  toggleKeepAwake() {
+    settings.keepAwake = !settings.keepAwake;
+    saveSettings();
+    syncPowerAssertion();
+    refresh(true);
+  },
+  openLog() {
+    shell.openPath(logFile());
   },
   async quit() {
     await stopServer();
@@ -74,15 +142,15 @@ async function startServer() {
   error = null;
   refresh(true);
   try {
-    running = await start({
-      port: PORT,
-      dataDir: dataDir(),
-      log: (line) => console.log(line),
-    });
+    running = await start({ port: PORT, dataDir: dataDir(), log });
+    watchdogFailures = 0;
+    log(`Server running on ${running.urls.join(', ') || `port ${running.port}`}`);
   } catch (e) {
     error = e.code === 'EADDRINUSE' ? `port ${PORT} is already in use` : e.message;
+    log(`Server failed to start: ${error}`);
   } finally {
     starting = false;
+    syncPowerAssertion();
     refresh(true);
   }
 }
@@ -90,9 +158,46 @@ async function startServer() {
 async function stopServer() {
   const current = running;
   running = null;
+  syncPowerAssertion();
   refresh(true);
   await current?.close();
+  if (current) log('Server stopped.');
 }
+
+// --- Watchdog: if the server stops answering, restart it rather than sit dead.
+async function watchdog() {
+  if (!running || starting) return;
+  const port = running.port;
+  const alive = await new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/api/info', timeout: 3000 }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+  if (alive) {
+    watchdogFailures = 0;
+    return;
+  }
+  watchdogFailures += 1;
+  log(`Watchdog: server not answering (${watchdogFailures}).`);
+  if (watchdogFailures >= 2) {
+    restarts += 1;
+    log(`Watchdog: restarting the server (restart #${restarts}).`);
+    watchdogFailures = 0;
+    await stopServer().catch(() => {});
+    await startServer();
+  }
+}
+
+process.on('uncaughtException', (e) => {
+  log(`Uncaught error: ${e?.stack || e}`);
+  if (!running && !starting) startServer();
+});
+process.on('unhandledRejection', (e) => {
+  log(`Unhandled rejection: ${e?.stack || e}`);
+});
 
 // Rebuilding the menu while it is open closes it, so only rebuild on change.
 function refresh(force = false) {
@@ -102,7 +207,8 @@ function refresh(force = false) {
   if (!force && key === lastMenuKey) return;
   lastMenuKey = key;
   tray.setContextMenu(Menu.buildFromTemplate(buildMenu(current, actions)));
-  tray.setToolTip(current.running ? `FixMyMix — ${current.urls[0] ?? `port ${PORT}`}` : 'FixMyMix (stopped)');
+  tray.setImage(current.running ? icons.running : icons.stopped);
+  tray.setToolTip(current.running ? `FixMyMix — ${current.urls[0] ?? `port ${PORT}`} · ${current.devices} connected` : 'FixMyMix (stopped)');
 }
 
 app.on('window-all-closed', () => {
@@ -111,16 +217,24 @@ app.on('window-all-closed', () => {
 
 app.whenReady().then(async () => {
   app.dock?.hide();
-  const icon = nativeImage.createFromPath(path.join(here, 'trayTemplate.png'));
-  icon.setTemplateImage(true);
+  trimLog();
+  loadSettings();
+  log(`FixMyMix ${app.getVersion()} starting.`);
+  const load = (file) => {
+    const image = nativeImage.createFromPath(path.join(here, file));
+    image.setTemplateImage(true);
+    return image;
+  };
+  icons = { running: load('trayTemplate.png'), stopped: load('trayStoppedTemplate.png') };
   try {
-    tray = new Tray(icon);
+    tray = new Tray(icons.stopped);
   } catch (e) {
-    console.error(`No system tray available: ${e.message}`);
+    log(`No system tray available: ${e.message}`);
   }
   await startServer();
   refresh();
-  setInterval(refresh, 10_000).unref?.(); // the LAN address changes when the Wi-Fi does
+  setInterval(refresh, 10_000).unref?.(); // the LAN address and device count change
+  setInterval(watchdog, WATCHDOG_MS).unref?.();
   if (SMOKE) await smoke();
 });
 
@@ -133,7 +247,9 @@ async function smoke() {
     http.get(`http://127.0.0.1:${PORT}/api/state`, (res) => resolve(res.statusCode)).on('error', () => resolve(0));
   });
   const labels = template.map((item) => item.label ?? (item.type === 'separator' ? '---' : '?'));
-  console.log(`SMOKE ${JSON.stringify({ running: current.running, error: current.error, urls: current.urls, passcode: current.passcode, status, labels })}`);
+  await watchdog();
+  const logged = fs.existsSync(logFile());
+  console.log(`SMOKE ${JSON.stringify({ running: current.running, error: current.error, urls: current.urls, passcode: current.passcode, status, labels, keepAwake: blockerId !== null && powerSaveBlocker.isStarted(blockerId), logged, watchdogFailures })}`);
   await stopServer();
   app.exit(status === 200 && current.running ? 0 : 1);
 }

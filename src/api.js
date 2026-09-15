@@ -5,6 +5,8 @@ import { StoreError, MAX_MEMBERS, MAX_CHANNELS } from './state.js';
 
 export const HEARTBEAT_MS = 15_000;
 export const SESSION_SECONDS = 60 * 60 * 24 * 7;
+export const OP_TTL_MS = 60_000;
+const OP_CACHE_MAX = 2000;
 
 export class ApiError extends Error {
   constructor(status, message, code = 'error') {
@@ -35,12 +37,18 @@ export function createThrottle(limit, windowMs, now = Date.now) {
 export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
   const clients = new Set();
   let heartbeat = null;
-  const frame = (snapshot) => `event: state\ndata: ${JSON.stringify(snapshot)}\n\n`;
 
-  const unsubscribe = store.subscribe((snapshot) => {
-    const chunk = frame(snapshot);
+  // Who is connected right now: memberId -> open streams. Not persisted; it is
+  // rebuilt from the live connections and sent inside every state frame.
+  const online = new Map();
+  const presence = () => ({ online: Object.fromEntries(online), devices: clients.size });
+  const frame = (snapshot) => `event: state\ndata: ${JSON.stringify({ ...snapshot, presence: presence() })}\n\n`;
+  const broadcast = (chunk) => {
     for (const client of clients) client.write(chunk);
-  });
+  };
+  const broadcastState = () => broadcast(frame(store.snapshot()));
+
+  const unsubscribe = store.subscribe((snapshot) => broadcast(frame(snapshot)));
 
   const startHeartbeat = () => {
     if (heartbeat) return;
@@ -55,10 +63,25 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
     heartbeat = null;
   };
 
+  const track = (memberId, delta) => {
+    if (!memberId) return;
+    const next = (online.get(memberId) ?? 0) + delta;
+    if (next > 0) online.set(memberId, next);
+    else online.delete(memberId);
+  };
+
   return {
     size: () => clients.size,
-    attach(write) {
+    presence,
+    /** Sends a one-off event (buzz, …) to everyone, or only to one member's devices. */
+    send(event, data = {}, { memberId = null } = {}) {
+      const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+      for (const client of clients) if (!memberId || client.memberId === memberId) client.write(chunk);
+    },
+    attach(write, { memberId = null } = {}) {
+      let detached = false;
       const client = {
+        memberId,
         write(chunk) {
           try {
             write(chunk);
@@ -68,18 +91,27 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
         },
       };
       const detach = () => {
+        if (detached) return;
+        detached = true;
         clients.delete(client);
+        track(memberId, -1);
         if (!clients.size) stopHeartbeat();
+        else broadcastState();
       };
-      client.write(`retry: 2000\n\n${frame(store.snapshot())}`);
       clients.add(client);
+      track(memberId, 1);
+      client.write(`retry: 2000\n\n${frame(store.snapshot())}`);
       startHeartbeat();
+      // Everyone else learns this device arrived (the board's presence dots).
+      const chunk = frame(store.snapshot());
+      for (const other of clients) if (other !== client) other.write(chunk);
       return detach;
     },
     close() {
       unsubscribe();
       stopHeartbeat();
       clients.clear();
+      online.clear();
     },
   };
 }
@@ -93,6 +125,9 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
  */
 export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies = false }) {
   const hub = createHub(store);
+  // Results of recent POSTs by client-supplied opId, so a retried tap whose
+  // first attempt actually landed is answered again rather than applied twice.
+  const ops = new Map();
   const requestThrottle = createThrottle(12, 3000);
   const messageThrottle = createThrottle(6, 10_000);
   const loginThrottle = createThrottle(8, 60_000);
@@ -106,8 +141,8 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
   const adminSession = () => ({ admin: true, passcode: auth.passcode });
 
   const routes = {
-    'GET /state': () => ok(store.snapshot()),
-    'GET /stream': () => ({ sse: true }),
+    'GET /state': () => ok({ ...store.snapshot(), presence: hub.presence() }),
+    'GET /stream': (req) => ({ sse: true, memberId: req.query?.memberId || null }),
 
     'GET /admin/session': async (req) => ok((await isAdmin(req)) ? adminSession() : { admin: false }),
 
@@ -197,17 +232,55 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
       await requireAdmin(req);
       return ok(store.clearHistory());
     },
+
+    // Makes every connected stage device (or one member's) vibrate and flash:
+    // the soundcheck "is everyone on?" test, and a mid-show attention getter.
+    'POST /admin/buzz': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      const memberId = body.memberId ? String(body.memberId) : null;
+      hub.send('buzz', { at: Date.now() }, { memberId });
+      return ok({ devices: hub.size() });
+    },
   };
 
+  function rememberOp(opId, result) {
+    if (!opId) return;
+    if (ops.size >= OP_CACHE_MAX) ops.delete(ops.keys().next().value);
+    ops.set(opId, { result, at: Date.now() });
+  }
+
+  function recallOp(opId) {
+    if (!opId) return null;
+    const hit = ops.get(opId);
+    if (!hit) return null;
+    if (Date.now() - hit.at > OP_TTL_MS) {
+      ops.delete(opId);
+      return null;
+    }
+    return hit.result;
+  }
+
   /**
-   * @param {{ method: string, path: string, cookies?: object, ip?: string, json: () => Promise<object> }} req
-   * @returns {Promise<{ status: number, json: object, headers: object } | { sse: true }>}
+   * @param {{ method: string, path: string, query?: object, cookies?: object, ip?: string, json: () => Promise<object> }} req
+   * @returns {Promise<{ status: number, json: object, headers: object } | { sse: true, memberId: string|null }>}
    */
   async function handle(req) {
     const handler = routes[`${req.method} ${req.path}`];
     if (!handler) throw new ApiError(404, 'No such endpoint.', 'not_found');
+    let opId = null;
+    if (req.method === 'POST') {
+      // Read the body once and hand the same object to the route.
+      const body = await req.json();
+      opId = typeof body.opId === 'string' && body.opId.length <= 64 ? body.opId : null;
+      const replay = recallOp(opId);
+      if (replay) return replay;
+      req = { ...req, json: async () => body };
+    }
     try {
-      return await handler(req);
+      const result = await handler(req);
+      rememberOp(opId, result);
+      return result;
     } catch (error) {
       if (error instanceof StoreError) throw new ApiError(409, error.message, error.code);
       throw error;
