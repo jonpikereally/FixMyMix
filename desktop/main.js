@@ -221,8 +221,11 @@ async function stopServer() {
   running = null;
   syncPowerAssertion();
   refresh(true);
-  await current?.close();
-  if (current) log('Server stopped.');
+  if (!current) return;
+  // close() ends live streams itself; the ceiling is belt and braces so Quit
+  // can never hang on a connection that refuses to go.
+  await Promise.race([current.close(), new Promise((resolve) => setTimeout(resolve, 2000))]);
+  log('Server stopped.');
 }
 
 // --- Watchdog: if the server stops answering, restart it rather than sit dead.
