@@ -240,3 +240,15 @@ test('admin can change the passcode; old sessions die, the changing device stays
   assert.ok(await go('POST', '/admin/login', { json: async () => ({ passcode: '9876' }) }));
   assert.equal(auth.passcode, '9876');
 });
+
+test('hub.close() ends every attached stream', () => {
+  const store = new Store();
+  const api = createApi({ store, auth: createAuth({ secret: 'q'.repeat(64), passcode: '1234' }) });
+  const ended = [];
+  api.hub.attach(() => {}, { end: () => ended.push('a') });
+  api.hub.attach(() => {}, { memberId: 'm', end: () => ended.push('b') });
+  api.hub.attach(() => {}, { end: () => { throw new Error('gone'); } });
+  api.hub.close();
+  assert.deepEqual(ended.sort(), ['a', 'b']);
+  assert.equal(api.hub.size(), 0);
+});

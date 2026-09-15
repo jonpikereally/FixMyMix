@@ -87,3 +87,25 @@ test('the default port is 80, falling back to 8080 and up when it cannot be boun
   const url = running.urls[0];
   assert.equal(url, running.port === 80 ? `http://${new URL(url).hostname}` : `http://${new URL(url).hostname}:${running.port}`);
 });
+
+test('close() returns promptly even with a live stream and idle connections open', async (t) => {
+  const running = await start({ port: 0, host: '127.0.0.1', dataDir: tmp(), autoCert: false, log: quiet });
+  // An SSE stream that would otherwise keep the server open forever.
+  const stream = await new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: running.port, path: '/api/stream' }, resolve).on('error', reject);
+  });
+  assert.equal(stream.statusCode, 200);
+  stream.on('error', () => {});
+  stream.resume(); // 'end' only fires on a stream something is reading
+  const ended = new Promise((resolve) => { stream.on('end', () => resolve('end')); stream.on('close', () => resolve('close')); });
+  // And an idle keep-alive connection that has sent nothing.
+  const idle = net.connect(running.port, '127.0.0.1');
+  idle.on('error', () => {});
+  await new Promise((resolve) => idle.on('connect', resolve));
+
+  const started = Date.now();
+  await running.close();
+  assert.ok(Date.now() - started < 1500, `close took ${Date.now() - started} ms`);
+  assert.ok(['end', 'close'].includes(await ended));
+  await assert.rejects(get(http, running.port));
+});
