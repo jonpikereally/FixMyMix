@@ -11,6 +11,9 @@ const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true, s
 // A flick: at least this far, mostly vertical, and quick — slower drags scroll.
 const SWIPE_MIN_PX = 40;
 const SWIPE_MAX_MS = 450;
+// Past this much movement, or once the flick window has passed, a touch on a
+// channel is a drag: the page follows the finger instead.
+const DRAG_PX = 110;
 const LAYOUTS = new Set(['rows', 'boxes']);
 
 const ui = {
@@ -347,7 +350,7 @@ function renderChannels(member) {
   );
   if (cursor >= member.channels.length) cursor = 0;
   const views = member.channels.map((channel) => channelView(member, channel, pendingByChannel.get(channel.id), confirmations.get(channel.id)));
-  ui.channels.className = settings.layout === 'boxes' ? 'boxes' : '';
+  ui.channels.className = `${settings.layout === 'boxes' ? 'boxes' : ''}${settings.swipe ? ' swipe' : ''}`.trim();
   // Rows read best in a narrow column; boxes want the whole width on a tablet.
   document.querySelector('main').classList.toggle('narrow', settings.layout !== 'boxes');
   ui.channels.replaceChildren(...views.map(settings.layout === 'boxes' ? renderBox : renderRow));
@@ -413,21 +416,39 @@ ui.autoDismiss.addEventListener('change', () => {
 ui.swipe.addEventListener('change', () => {
   settings.swipe = ui.swipe.checked;
   writeStored(SETTINGS_KEY, settings);
+  render();
 });
 
 // Swipe on a channel row or box: a quick flick up sends "more", down "less".
+// With swiping on, the channels carry touch-action: none, so the browser
+// never turns a flick into a scroll (or a pull-to-refresh). Scrolling a long
+// list still works: a touch that outlasts the flick window, or travels
+// further than a flick, becomes a drag and the page follows the finger.
 let touchStart = null;
 ui.channels.addEventListener('touchstart', (event) => {
   if (!settings.swipe || overlayOpen() || event.touches.length !== 1) return;
   const target = event.target.closest('[data-channel]');
   if (!target) return;
   const touch = event.touches[0];
-  touchStart = { channelId: target.dataset.channel, x: touch.clientX, y: touch.clientY, at: Date.now() };
+  touchStart = { channelId: target.dataset.channel, x: touch.clientX, y: touch.clientY, lastY: touch.clientY, at: Date.now(), dragging: false };
+}, { passive: true });
+ui.channels.addEventListener('touchmove', (event) => {
+  const start = touchStart;
+  if (!start || event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  if (!start.dragging && (Date.now() - start.at > SWIPE_MAX_MS || Math.abs(touch.clientY - start.y) > DRAG_PX)) {
+    start.dragging = true;
+    start.lastY = touch.clientY;
+  }
+  if (start.dragging) {
+    window.scrollBy(0, start.lastY - touch.clientY);
+    start.lastY = touch.clientY;
+  }
 }, { passive: true });
 ui.channels.addEventListener('touchend', (event) => {
   const start = touchStart;
   touchStart = null;
-  if (!start || !settings.swipe) return;
+  if (!start || start.dragging || !settings.swipe) return;
   const touch = event.changedTouches[0];
   const dx = touch.clientX - start.x;
   const dy = touch.clientY - start.y;
