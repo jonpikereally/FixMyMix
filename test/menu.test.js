@@ -72,7 +72,8 @@ test('update items follow the updater state machine', () => {
   assert.deepEqual(l({ status: 'checking' }), ['Checking for updates…']);
   assert.deepEqual(l({ status: 'uptodate', version: '0.3.0' }), ['Up to date (0.3.0) — check again']);
   assert.deepEqual(l({ status: 'available', version: '0.4.0' }), ['Update to 0.4.0 — download']);
-  assert.deepEqual(l({ status: 'downloading', version: '0.4.0', progress: 45 }), ['Downloading 0.4.0… 45%']);
+  assert.deepEqual(l({ status: 'downloading', version: '0.4.0', progress: 45 }), ['Downloading 0.4.0… 45% (close this menu to let it run)']);
+  assert.deepEqual(l({ status: 'downloading', version: '0.4.0', progress: '12 MB' }), ['Downloading 0.4.0… 12 MB (close this menu to let it run)']);
   assert.deepEqual(l({ status: 'ready', version: '0.4.0' }), ['Install 0.4.0 and relaunch']);
   assert.deepEqual(l({ status: 'error', message: 'offline' }), ['Update failed: offline', 'Try again']);
   assert.deepEqual(l({ status: 'unsupported' }), ['Updates apply to the installed app']);
