@@ -10,10 +10,10 @@ const CONFIRM_MS = 8000;
 const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true, swipe: true };
 // A flick: at least this far, mostly vertical, and quick — slower drags scroll.
 const SWIPE_MIN_PX = 40;
-const SWIPE_MAX_MS = 450;
-// Past this much movement, or once the flick window has passed, a touch on a
-// channel is a drag: the page follows the finger instead.
-const DRAG_PX = 110;
+// A flick is decided by time alone: a real one on a phone easily travels
+// 200 px or more, so distance must never disqualify it. Once a touch has
+// lasted longer than this it is a drag, and the page follows the finger.
+const SWIPE_MAX_MS = 600;
 const LAYOUTS = new Set(['rows', 'boxes']);
 
 const ui = {
@@ -436,7 +436,7 @@ ui.channels.addEventListener('touchmove', (event) => {
   const start = touchStart;
   if (!start || event.touches.length !== 1) return;
   const touch = event.touches[0];
-  if (!start.dragging && (Date.now() - start.at > SWIPE_MAX_MS || Math.abs(touch.clientY - start.y) > DRAG_PX)) {
+  if (!start.dragging && Date.now() - start.at > SWIPE_MAX_MS) {
     start.dragging = true;
     start.lastY = touch.clientY;
   }
