@@ -2,6 +2,7 @@
 // http module, and the tests call it directly. Paths are relative to /api.
 
 import { StoreError, MAX_MEMBERS, MAX_CHANNELS } from './state.js';
+import { PASSCODE_PATTERN } from './auth.js';
 
 export const HEARTBEAT_MS = 15_000;
 export const SESSION_SECONDS = 60 * 60 * 24 * 7;
@@ -122,8 +123,9 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
  * @param {ReturnType<import('./auth.js').createAuth>} options.auth
  * @param {string} [options.cookieName]
  * @param {boolean} [options.secureCookies]  true when served over HTTPS
+ * @param {(credentials: { passcode: string, secret: string }) => (void|Promise<void>)} [options.onCredentials]  persist a changed passcode
  */
-export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies = false }) {
+export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies = false, onCredentials = () => {} }) {
   const hub = createHub(store);
   // Results of recent POSTs by client-supplied opId, so a retried tap whose
   // first attempt actually landed is answered again rather than applied twice.
@@ -155,6 +157,19 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
     },
 
     'POST /admin/logout': () => ok({ admin: false }, { 'Set-Cookie': `${cookieName}=; ${cookieAttrs}; Max-Age=0` }),
+
+    // Changing the passcode rotates the secret, so other admin devices must
+    // log in again; this device gets a fresh cookie in the same response.
+    'POST /admin/passcode': async (req) => {
+      await requireAdmin(req);
+      const body = await req.json();
+      const next = String(body.passcode ?? '').trim();
+      if (!PASSCODE_PATTERN.test(next)) throw new ApiError(400, 'Passcode must be 4 to 12 digits.', 'bad_passcode');
+      auth.setPasscode(next);
+      await onCredentials({ passcode: auth.passcode, secret: auth.secret });
+      const token = await auth.login(next);
+      return ok(adminSession(), { 'Set-Cookie': `${cookieName}=${token}; ${cookieAttrs}; Max-Age=${SESSION_SECONDS}` });
+    },
 
     'POST /requests': async (req) => {
       const body = await req.json();

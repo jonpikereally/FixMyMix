@@ -62,6 +62,12 @@
           <input id="showName" type="text" maxlength="60" class="grow-input">
           <button id="saveShow" class="primary" type="button">Save</button>
         </div>
+        <label for="newPasscode">Admin passcode — currently <strong id="currentPasscode">…</strong></label>
+        <div class="row">
+          <input id="newPasscode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="New passcode, 4–12 digits" autocomplete="off" class="grow-input">
+          <button id="savePasscode" class="primary" type="button">Change</button>
+        </div>
+        <p class="muted small">Other devices logged in as admin will need the new code. This one stays logged in.</p>
         <label class="setting mt">
           <input id="allowMessages" type="checkbox">
           <span>

@@ -215,3 +215,28 @@ test('stream carries presence and buzz reaches the right devices', async () => {
   assert.deepEqual(last.presence, { online: { [sam.id]: 1 }, devices: 2 });
   api.hub.close();
 });
+
+test('admin can change the passcode; old sessions die, the changing device stays in', async () => {
+  const { store, call } = setup();
+  const persisted = [];
+  const auth = createAuth({ secret: 'z'.repeat(64), passcode: '1234' });
+  const api = createApi({ store, auth, onCredentials: (c) => persisted.push(c) });
+  const go = (method, path, opts = {}) => api.handle({ method, path, cookies: {}, ip: 'x', json: async () => ({}), ...opts });
+  const cookieOf = (res) => parseCookies(res.headers['Set-Cookie'].split(';')[0]);
+  const deviceA = cookieOf(await go('POST', '/admin/login', { json: async () => ({ passcode: '1234' }) }));
+  const deviceB = cookieOf(await go('POST', '/admin/login', { json: async () => ({ passcode: '1234' }) }));
+  await assert.rejects(go('POST', '/admin/passcode', { cookies: deviceA, json: async () => ({ passcode: '12' }) }), (e) => e.status === 400);
+  await assert.rejects(go('POST', '/admin/passcode', { json: async () => ({ passcode: '9876' }) }), (e) => e.status === 401);
+  const changed = await go('POST', '/admin/passcode', { cookies: deviceA, json: async () => ({ passcode: '9876' }) });
+  assert.equal(changed.json.passcode, '9876');
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].passcode, '9876');
+  assert.notEqual(persisted[0].secret, 'z'.repeat(64));
+  const deviceA2 = cookieOf(changed);
+  assert.deepEqual((await go('GET', '/admin/session', { cookies: deviceA2 })).json, { admin: true, passcode: '9876' });
+  assert.deepEqual((await go('GET', '/admin/session', { cookies: deviceA })).json, { admin: false });
+  assert.deepEqual((await go('GET', '/admin/session', { cookies: deviceB })).json, { admin: false });
+  await assert.rejects(go('POST', '/admin/login', { json: async () => ({ passcode: '1234' }) }), (e) => e.status === 401);
+  assert.ok(await go('POST', '/admin/login', { json: async () => ({ passcode: '9876' }) }));
+  assert.equal(auth.passcode, '9876');
+});

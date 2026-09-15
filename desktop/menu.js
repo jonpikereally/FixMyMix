@@ -18,7 +18,7 @@ export function buildMenu(state, actions) {
       items.push({ label: url, toolTip: 'Copy address', click: () => actions.copy(url) });
     }
     for (const url of state.httpsUrls ?? []) {
-      items.push({ label: `${url}  (MIDI)`, toolTip: 'Copy https address — for MIDI controllers on other devices', click: () => actions.copy(url) });
+      items.push({ label: `${url}  (also works)`, toolTip: 'Copy https address — the same port; needed for MIDI controllers on other devices', click: () => actions.copy(url) });
     }
     items.push({ label: `Admin passcode: ${state.passcode}`, toolTip: 'Copy passcode', click: () => actions.copy(state.passcode) });
     items.push({ type: 'separator' });

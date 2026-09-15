@@ -60,17 +60,31 @@ export function parseCookies(header) {
   return cookies;
 }
 
+export const PASSCODE_PATTERN = /^\d{4,12}$/;
+
 export function createAuth({ secret, passcode }) {
   let token = null;
   const currentToken = () => (token ??= adminToken(secret));
   return {
-    passcode,
+    get passcode() {
+      return passcode;
+    },
+    get secret() {
+      return secret;
+    },
     async isAdmin(cookieValue) {
       if (!cookieValue) return false;
       return constantTimeEqual(cookieValue, await currentToken());
     },
     async login(attempt) {
       return constantTimeEqual(attempt, passcode) ? currentToken() : null;
+    },
+    /** New passcode and a new secret: every existing admin cookie stops working. */
+    setPasscode(next) {
+      if (!PASSCODE_PATTERN.test(String(next))) throw new Error('Passcode must be 4 to 12 digits.');
+      passcode = String(next);
+      secret = randomSecret();
+      token = null;
     },
   };
 }
