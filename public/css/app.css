@@ -20,6 +20,9 @@
 
 html, body {
   margin: 0;
+  /* No rubber-banding or pull-to-refresh: a flick at the top of the page must
+     never reload it mid-show. */
+  overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
   font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -509,3 +512,6 @@ body.flash { animation: flash 600ms ease-in-out 3; }
 .channel.swiped-more .tap.more, .box.swiped-more .half.up { filter: brightness(1.6); transform: scale(1.06); }
 .channel.swiped-less .tap.less, .box.swiped-less .half.down { filter: brightness(1.6); transform: scale(1.06); }
 .channel, .box { touch-action: pan-y; }
+/* Swiping on: the browser keeps its hands off touches that start on a channel
+   (no scroll, no refresh); stage.js scrolls the page itself for slow drags. */
+#channels.swipe .channel, #channels.swipe .box { touch-action: none; }
