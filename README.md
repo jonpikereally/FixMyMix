@@ -95,6 +95,27 @@ The admin board is just a web page too, so it can run on an iPad (or a phone, or
 
 State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. The passcode is deliberately a fixed default — the lock is there to stop a performer wandering into the board by accident on a private stage Wi-Fi, not to resist an attacker; set `ADMIN_PASSCODE` if you want a different one. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
 
+## Gig checklist
+
+What actually goes wrong at shows, and what the app and you do about it.
+
+**The app's side**
+
+- The menu-bar app keeps the Mac awake while the server runs (*Keep Mac awake while running*, on by default). The lid still has to stay open.
+- Stage pages keep the phone's screen on (⚙ → *Keep the screen on*, default on), so nobody misses a green confirmation because their phone locked.
+- A tap survives a Wi-Fi blip: it retries quietly for ~15 s with a *Sending…* note, and the server applies each tap exactly once, so a retry never turns "more" into "more ×2".
+- The board shows a green dot on every connected performer and "N devices connected"; the menu bar shows the device count too.
+- **Buzz everyone** (and a per-performer *Buzz*) makes phones vibrate and flash — the soundcheck "is everyone on?" test, and a way to get someone's attention mid-set.
+- If the server inside the app ever stops answering, the app restarts it within ~20 s and writes what happened to the log (*Open log* in the menu). The tray icon dims while the server is stopped.
+
+**Your side**
+
+1. **Bring your own Wi-Fi.** Venue networks fail in two ways: captive portals, and *client isolation* that silently stops phones talking to the laptop. A travel router dedicated to the band (no internet needed) with a fixed name and password means every phone auto-joins. Give the laptop a DHCP reservation in the router so its address — and the QR code — never changes. Make sure client/AP isolation is **off**.
+2. **First launch:** macOS asks whether FixMyMix may accept incoming connections. Click **Allow**, or nothing can reach it.
+3. **Laptop:** plugged in, lid open (the screen can dim), *Start at login* on so a reboot recovers by itself.
+4. **Phones:** *Add to Home Screen* once for a full-screen view.
+5. **Soundcheck ritual:** open the board, check every dot is green, press *Buzz everyone*, watch the phones light up.
+
 ## Development
 
 ```sh

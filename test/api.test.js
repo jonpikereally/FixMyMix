@@ -171,3 +171,47 @@ test('messaging routes: setting toggle, member send, admin send, ack and resolve
   for (let i = 0; i < 4; i++) await call('POST', '/messages', { body: { memberId: alex.id, text: `m${i}` } }); // 6 per 10 s, incl. the two attempts above
   await assert.rejects(call('POST', '/messages', { body: { memberId: alex.id, text: 'too many' } }), (e) => e.status === 429);
 });
+
+test('a retried POST with the same opId is answered once, not applied twice', async () => {
+  const { store, call } = setup();
+  const [alex] = store.members;
+  const body = { memberId: alex.id, channelId: alex.channels[0].id, direction: 'more', opId: 'tap-1' };
+  const first = await call('POST', '/requests', { body });
+  const again = await call('POST', '/requests', { body });
+  assert.equal(again.json.request.count, 1);
+  assert.equal(again.json.request.id, first.json.request.id);
+  assert.equal(store.pending()[0].count, 1);
+  const fresh = await call('POST', '/requests', { body: { ...body, opId: 'tap-2' } });
+  assert.equal(fresh.json.request.count, 2);
+});
+
+test('stream carries presence and buzz reaches the right devices', async () => {
+  const { store, api, call } = setup();
+  const [alex, sam] = store.members;
+  const seen = { alex: [], sam: [], board: [] };
+  const detachAlex = api.hub.attach((c) => seen.alex.push(c), { memberId: alex.id });
+  api.hub.attach((c) => seen.sam.push(c), { memberId: sam.id });
+  api.hub.attach((c) => seen.board.push(c));
+  const state = await call('GET', '/state');
+  assert.deepEqual(state.json.presence, { online: { [alex.id]: 1, [sam.id]: 1 }, devices: 3 });
+  const stream = await call('GET', '/stream', {});
+  assert.deepEqual(stream, { sse: true, memberId: null });
+  const withMember = await api.handle({ method: 'GET', path: '/stream', query: { memberId: alex.id }, cookies: {}, json: async () => ({}) });
+  assert.equal(withMember.memberId, alex.id);
+
+  const cookies = await login(call);
+  await assert.rejects(call('POST', '/admin/buzz', { body: {} }), (e) => e.status === 401);
+  const all = await call('POST', '/admin/buzz', { body: {}, cookies });
+  assert.equal(all.json.devices, 3);
+  assert.equal(seen.alex.filter((c) => c.startsWith('event: buzz')).length, 1);
+  assert.equal(seen.board.filter((c) => c.startsWith('event: buzz')).length, 1);
+  await call('POST', '/admin/buzz', { body: { memberId: sam.id }, cookies });
+  assert.equal(seen.sam.filter((c) => c.startsWith('event: buzz')).length, 2);
+  assert.equal(seen.alex.filter((c) => c.startsWith('event: buzz')).length, 1);
+
+  // Alex disconnects: the others get a fresh state frame without them.
+  detachAlex();
+  const last = JSON.parse(seen.board.at(-1).replace(/^event: state\ndata: /, ''));
+  assert.deepEqual(last.presence, { online: { [sam.id]: 1 }, devices: 2 });
+  api.hub.close();
+});

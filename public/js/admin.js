@@ -1,4 +1,4 @@
-import { watchState, post, toast, el, ago } from './net.js';
+import { watchState, post, toast, el, ago, keepScreenAwake } from './net.js';
 import { ICONS, glyph, guessIcon } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 
@@ -9,7 +9,7 @@ const ui = {
   title: $('title'), subtitle: $('subtitle'), status: $('status'), pendingPill: $('pendingPill'),
   tabBoard: $('tabBoard'), tabSetup: $('tabSetup'), logout: $('logout'), offline: $('offline'),
   login: $('login'), loginForm: $('loginForm'), passcode: $('passcode'),
-  board: $('board'), memberCards: $('memberCards'), log: $('log'), resolveAll: $('resolveAll'), clearHistory: $('clearHistory'),
+  board: $('board'), memberCards: $('memberCards'), log: $('log'), resolveAll: $('resolveAll'), clearHistory: $('clearHistory'), buzzAll: $('buzzAll'), boardHint: $('boardHint'),
   setup: $('setup'), showName: $('showName'), saveShow: $('saveShow'),
   memberCount: $('memberCount'), channelCount: $('channelCount'), quickSetup: $('quickSetup'),
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
@@ -166,11 +166,18 @@ function renderBoard() {
       const myInbox = inbox.filter((m) => m.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt);
       const myOutgoing = outgoing.filter((m) => m.memberId === member.id);
       const count = mine.length + myInbox.length;
+      const connected = Boolean(state.presence?.online?.[member.id]);
       const header = el('header', {}, [
-        el('h3', { text: `${glyph(member.icon) ? `${glyph(member.icon)} ` : ''}${member.name}` }),
-        count > 1
-          ? el('button', { type: 'button', class: 'ghost compact', text: 'All done', onclick: () => act(() => post('/api/admin/resolve', { memberId: member.id })) })
-          : el('span', { class: `pill${count ? ' hot' : ''}`, text: String(count) }),
+        el('h3', {}, [
+          el('span', { class: `dot${connected ? ' on' : ''}`, title: connected ? 'Connected' : 'Not connected', 'aria-label': connected ? 'connected' : 'not connected' }),
+          `${glyph(member.icon) ? `${glyph(member.icon)} ` : ''}${member.name}`,
+        ]),
+        el('span', { class: 'row' }, [
+          el('button', { type: 'button', class: 'ghost compact', text: 'Buzz', title: `Buzz ${member.name}'s phone`, disabled: connected ? null : 'disabled', onclick: () => act(() => post('/api/admin/buzz', { memberId: member.id })) }),
+          count > 1
+            ? el('button', { type: 'button', class: 'ghost compact', text: 'All done', onclick: () => act(() => post('/api/admin/resolve', { memberId: member.id })) })
+            : el('span', { class: `pill${count ? ' hot' : ''}`, text: String(count) }),
+        ]),
       ]);
       return el('div', { class: `card member-card${count ? ' hot' : ''}` }, [
         header,
@@ -181,6 +188,10 @@ function renderBoard() {
       ]);
     }),
   );
+
+  const onlineCount = state.members.filter((m) => state.presence?.online?.[m.id]).length;
+  ui.boardHint.textContent = `${onlineCount} of ${state.members.length} performers connected · ${state.presence?.devices ?? 0} device${state.presence?.devices === 1 ? '' : 's'} on the board. Press Done once you've made a change.`;
+  ui.buzzAll.disabled = !(state.presence?.devices > 0);
 
   const done = [...state.requests, ...state.messages]
     .filter((r) => r.status === 'done')
@@ -353,6 +364,7 @@ function render() {
   ui.tabBoard.className = view === 'board' ? 'primary' : 'ghost';
   ui.tabSetup.className = view === 'setup' ? 'primary' : 'ghost';
   ui.subtitle.textContent = admin ? (view === 'board' ? 'Mix board' : 'Setup') : 'Locked';
+  keepScreenAwake(admin); // the board must stay visible through the set
 
   ui.allowMessages.checked = Boolean(state.show.messaging);
   if (!admin) {
@@ -395,6 +407,10 @@ ui.tabSetup.addEventListener('click', () => { view = 'setup'; draft = null; rend
 ui.tabBoard.addEventListener('click', closeIconMenu);
 
 ui.resolveAll.addEventListener('click', () => act(() => post('/api/admin/resolve', { all: true })));
+ui.buzzAll.addEventListener('click', () => act(async () => {
+  const { devices } = await post('/api/admin/buzz', {});
+  toast(`Buzzed ${devices} device${devices === 1 ? '' : 's'}`);
+}));
 ui.clearHistory.addEventListener('click', () => act(() => post('/api/admin/history/clear')));
 ui.saveShow.addEventListener('click', () => act(() => post('/api/admin/show', { name: ui.showName.value }), 'Show name saved'));
 ui.allowMessages.addEventListener('change', () => act(() => post('/api/admin/show', { messaging: ui.allowMessages.checked }), ui.allowMessages.checked ? 'Messages on' : 'Messages off'));
