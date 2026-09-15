@@ -67,6 +67,10 @@ First launch on a new Mac: the app isn't notarised, so macOS will object once. *
 
 To make an installer yourself on a Mac that has the source: `npm run app:dmg` builds a universal (Intel + Apple Silicon) app and writes `~/Desktop/FixMyMix-build/FixMyMix-<version>.dmg`. GitHub builds and publishes it too: push a `vX.Y.Z` tag, or run the *Release* workflow from the Actions tab, which tags the current version from `package.json` and publishes the release (`.github/workflows/release.yml`).
 
+### Updating
+
+The menu-bar app updates itself: **Check for updates…** in its menu asks GitHub for the newest release (it also checks quietly on launch and every few hours, and the menu shows *Update to X* when there is one). Choose it to download, then **Install and relaunch** — the app swaps the new build into Applications and reopens. Internet is needed only for that moment, never during a show. If the app is running from the disk image or from a source folder it says so and points at the Releases page instead.
+
 ### From the terminal
 
 Requires Node.js 20 or newer. The server itself has no npm dependencies.
