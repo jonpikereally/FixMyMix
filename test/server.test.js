@@ -110,13 +110,43 @@ test('close() returns promptly even with a live stream and idle connections open
   await assert.rejects(get(http, running.port));
 });
 
-test('listens on IPv6 and IPv4 together, so localhost works whichever the OS tries first', async (t) => {
+test('localhost works over ::1 as well as 127.0.0.1', async (t) => {
   const running = await start({ port: 0, dataDir: tmp(), autoCert: false, log: quiet });
   t.after(() => running.close());
   const v4 = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port: running.port, path: '/api/info' }, (res) => resolve(res.statusCode)).on('error', reject));
   assert.equal(v4, 200);
   const v6 = await new Promise((resolve) => http.get({ host: '::1', port: running.port, path: '/api/info' }, (res) => resolve(res.statusCode)).on('error', (e) => resolve(e.code)));
-  // ENETUNREACH/EADDRNOTAVAIL only when the machine has no IPv6 loopback at all.
+  // ENETUNREACH/EADDRNOTAVAIL/EAFNOSUPPORT only when the machine has no IPv6 loopback at all.
   assert.ok(v6 === 200 || ['ENETUNREACH', 'EADDRNOTAVAIL', 'ECONNREFUSED', 'EAFNOSUPPORT'].includes(v6), String(v6));
   if (v6 !== 200) t.diagnostic(`IPv6 loopback unavailable here (${v6}); IPv4 path verified`);
 });
+
+test('a port held by an IPv4-only program (AbleSet) is treated as taken, never shared over IPv6', async (t) => {
+  // AbleSet binds 0.0.0.0:<port>. On macOS a dual-stack "::" bind on the same
+  // port would succeed anyway and the app would advertise a port it does not
+  // own. The main listener must be IPv4, so this conflict is always seen.
+  const other = net.createServer();
+  await new Promise((resolve) => other.listen(0, '0.0.0.0', resolve));
+  const taken = other.address().port;
+  t.after(() => other.close());
+  const running = await start({ port: taken, dataDir: tmp(), autoCert: false, log: quiet });
+  t.after(() => running.close());
+  assert.notEqual(running.port, taken);
+  assert.ok(running.urls.every((u) => u.endsWith(`:${running.port}`)), running.urls.join(' '));
+  const v4 = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port: running.port, path: '/api/info' }, (res) => resolve(res.statusCode)).on('error', reject));
+  assert.equal(v4, 200);
+});
+
+test('the IPv6 loopback listener is optional: something else on [::1]:port does not stop the app', async (t) => {
+  const other = net.createServer();
+  const ok = await new Promise((resolve) => { other.once('error', () => resolve(false)); other.listen({ port: 0, host: '::1', ipv6Only: true }, () => resolve(true)); });
+  if (!ok) { t.diagnostic('no IPv6 loopback here; skipped'); return; }
+  const port = other.address().port;
+  t.after(() => other.close());
+  const running = await start({ port, dataDir: tmp(), autoCert: false, log: quiet });
+  t.after(() => running.close());
+  assert.equal(running.port, port);
+  const v4 = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port, path: '/api/info' }, (res) => resolve(res.statusCode)).on('error', reject));
+  assert.equal(v4, 200);
+});
+
