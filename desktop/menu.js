@@ -54,7 +54,7 @@ export function updateItems(update, actions) {
     case 'available':
       return [{ label: `Update to ${update.version} — download`, click: () => actions.downloadUpdate() }];
     case 'downloading':
-      return [{ label: `Downloading ${update.version}… ${update.progress ?? 0}%`, enabled: false }];
+      return [{ label: `Downloading ${update.version}… ${typeof update.progress === 'number' ? `${update.progress}%` : update.progress ?? '0%'} (close this menu to let it run)`, enabled: false }];
     case 'ready':
       return [{ label: `Install ${update.version} and relaunch`, click: () => actions.installUpdate() }];
     case 'error':

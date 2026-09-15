@@ -1,14 +1,14 @@
 // Menu-bar app: runs the LAN server in-process and shows the address and
 // passcode in the tray. No windows; everything happens in the browser.
 
-import { app, Tray, Menu, nativeImage, clipboard, shell, dialog, powerSaveBlocker } from 'electron';
+import { app, Tray, Menu, nativeImage, clipboard, shell, dialog, powerSaveBlocker, utilityProcess, Notification } from 'electron';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
 import { buildMenu } from './menu.js';
-import { compareVersions, fetchLatest, download, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
+import { compareVersions, fetchLatest, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 80;
@@ -126,30 +126,68 @@ async function checkForUpdates({ quiet = false } = {}) {
   }
 }
 
+// The download runs in a helper process: an open menu-bar menu pauses this
+// process on macOS, and a download driven from here would pause with it.
+function downloadInWorker(url, dest, onProgress) {
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(path.join(here, 'download-worker.cjs'), [], { serviceName: 'FixMyMix update download' });
+    let settled = false;
+    const finish = (fn, value) => { if (!settled) { settled = true; fn(value); } };
+    child.on('message', (message) => {
+      if (message.type === 'progress') onProgress(message);
+      else if (message.type === 'done') finish(resolve);
+      else if (message.type === 'error') finish(reject, new Error(message.message));
+    });
+    child.on('exit', (code) => finish(reject, new Error(`download helper exited (${code})`)));
+    child.postMessage({ url, dest });
+  });
+}
+
+function showTrayText(text) {
+  try {
+    tray?.setTitle(text);
+  } catch {
+    // Only macOS shows text beside the icon.
+  }
+}
+
+function notify(title, body) {
+  try {
+    if (Notification.isSupported()) new Notification({ title, body }).show();
+  } catch {
+    // Notifications are a courtesy.
+  }
+}
+
 async function downloadUpdate() {
   const { latest } = update;
   if (!latest?.asset || update.status === 'downloading') return;
   const zip = path.join(updatesDir(), latest.asset.name);
+  fs.mkdirSync(updatesDir(), { recursive: true });
   setUpdate({ status: 'downloading', progress: 0 });
+  showTrayText('⬇ 0%');
   try {
     let shown = -1;
-    await download(latest.asset.url, zip, {
-      onProgress: (fraction) => {
-        const pct = Math.floor(fraction * 100);
-        if (pct !== shown && pct % 5 === 0) {
-          shown = pct;
-          setUpdate({ progress: pct });
-        }
-      },
+    await downloadInWorker(latest.asset.url, zip, ({ fraction, received, total }) => {
+      const label = total ? `${Math.floor(fraction * 100)}%` : `${Math.round(received / 1e6)} MB`;
+      if (label === shown) return;
+      shown = label;
+      showTrayText(`⬇ ${label}`);
+      update.progress = total ? Math.floor(fraction * 100) : label;
+      refresh(true);
     });
+    showTrayText('⬇ unpacking…');
     const fresh = await extractApp(zip, path.join(updatesDir(), 'unpacked'));
     const got = readBundleVersion(fresh);
     if (got && compareVersions(got, latest.version) !== 0) throw new Error(`downloaded ${got}, expected ${latest.version}`);
     fs.rmSync(zip, { force: true });
     log(`Update ${latest.version} downloaded and unpacked.`);
+    showTrayText('');
     setUpdate({ status: 'ready', fresh, progress: 100 });
+    notify(`FixMyMix ${latest.version} is ready`, 'Choose "Install and relaunch" from the FixMyMix menu.');
   } catch (e) {
     log(`Update download failed: ${e.message}`);
+    showTrayText('');
     setUpdate({ status: 'error', message: e.message });
   }
 }
