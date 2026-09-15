@@ -1,0 +1,37 @@
+# Builds the macOS installer on a macOS runner and attaches it to a GitHub
+# Release whenever a version tag (v1.2.3) is pushed. Also runnable by hand from
+# the Actions tab, which leaves the DMG as a workflow artifact.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run app:dmg
+        env:
+          FIXMYMIX_APP_OUT: ${{ github.workspace }}/build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FixMyMix-installer
+          path: build/*.dmg
+          if-no-files-found: error
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: build/*.dmg
+          generate_release_notes: true

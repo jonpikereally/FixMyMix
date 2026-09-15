@@ -58,6 +58,14 @@ That produces `desktop/dist/FixMyMix-darwin-<arch>/FixMyMix.app`; drag it to App
 
 The app isn't code-signed, so the first launch needs a right-click → Open (or System Settings → Privacy & Security → Open Anyway).
 
+### Installing on another Mac
+
+Every tagged version has a ready-made installer on the [Releases page](https://github.com/jonpikereally/FixMyMix/releases): download `FixMyMix-<version>.dmg`, open it, drag FixMyMix to Applications. The other Mac needs nothing else — no Node, no git.
+
+First launch on a new Mac: the app isn't notarised, so macOS will object once. **Right-click FixMyMix → Open**; on macOS 15 or later you may instead need **System Settings → Privacy & Security → Open Anyway** after the first attempt. (Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/FixMyMix.app`.) It also asks whether FixMyMix may accept incoming connections — **Allow**.
+
+To make an installer yourself on a Mac that has the source: `npm run app:dmg` builds a universal (Intel + Apple Silicon) app and writes `~/Desktop/FixMyMix-build/FixMyMix-<version>.dmg`. Tagging a commit `vX.Y.Z` and pushing the tag makes GitHub build and publish it (`.github/workflows/release.yml`).
+
 ### From the terminal
 
 Requires Node.js 20 or newer. The server itself has no npm dependencies.
