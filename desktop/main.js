@@ -7,14 +7,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
-import { createCertificate } from '../src/tls.js';
 import { buildMenu } from './menu.js';
+import { compareVersions, fetchLatest, download, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.PORT) || 8080;
+const PORT = Number(process.env.PORT) || 80;
 const SMOKE = process.env.FIXMYMIX_SMOKE === '1';
 const WATCHDOG_MS = 10_000;
 const LOG_MAX_BYTES = 1024 * 1024;
+const UPDATE_CHECK_DELAY_MS = 20_000;
+const UPDATE_CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+const UPDATE_API = process.env.FIXMYMIX_UPDATE_API || undefined; // test feeds
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -27,6 +30,8 @@ let lastMenuKey = '';
 let blockerId = null;
 let watchdogFailures = 0;
 let restarts = 0;
+// In-app updater: idle → checking → available → downloading → ready → (install)
+let update = { status: 'idle', version: null, progress: 0, message: null, latest: null, fresh: null };
 
 // --- Log file: what happened, for when something goes wrong at a gig. -------
 const logFile = () => path.join(app.getPath('userData'), 'fixmymix.log');
@@ -90,7 +95,77 @@ function state() {
     devices: running?.devices() ?? 0,
     keepAwake: settings.keepAwake,
     loginItem: app.getLoginItemSettings().openAtLogin,
+    version: app.getVersion(),
+    update: { status: update.status, version: update.version, progress: update.progress, message: update.message },
   };
+}
+
+// --- Updates -----------------------------------------------------------------
+const updatesDir = () => path.join(app.getPath('userData'), 'updates');
+
+function setUpdate(patch) {
+  update = { ...update, ...patch };
+  refresh(true);
+}
+
+async function checkForUpdates({ quiet = false } = {}) {
+  if (['checking', 'downloading'].includes(update.status)) return;
+  if (!app.isPackaged && !UPDATE_API) return setUpdate({ status: 'unsupported' });
+  setUpdate({ status: 'checking', message: null });
+  try {
+    const latest = await fetchLatest({ apiUrl: UPDATE_API });
+    if (latest.asset && compareVersions(latest.version, app.getVersion()) > 0) {
+      log(`Update available: ${latest.version} (running ${app.getVersion()}).`);
+      setUpdate({ status: 'available', version: latest.version, latest, fresh: null, progress: 0 });
+    } else {
+      setUpdate({ status: 'uptodate', version: app.getVersion(), latest });
+    }
+  } catch (e) {
+    log(`Update check failed: ${e.message}`);
+    setUpdate({ status: quiet ? 'idle' : 'error', message: e.message });
+  }
+}
+
+async function downloadUpdate() {
+  const { latest } = update;
+  if (!latest?.asset || update.status === 'downloading') return;
+  const zip = path.join(updatesDir(), latest.asset.name);
+  setUpdate({ status: 'downloading', progress: 0 });
+  try {
+    let shown = -1;
+    await download(latest.asset.url, zip, {
+      onProgress: (fraction) => {
+        const pct = Math.floor(fraction * 100);
+        if (pct !== shown && pct % 5 === 0) {
+          shown = pct;
+          setUpdate({ progress: pct });
+        }
+      },
+    });
+    const fresh = await extractApp(zip, path.join(updatesDir(), 'unpacked'));
+    const got = readBundleVersion(fresh);
+    if (got && compareVersions(got, latest.version) !== 0) throw new Error(`downloaded ${got}, expected ${latest.version}`);
+    fs.rmSync(zip, { force: true });
+    log(`Update ${latest.version} downloaded and unpacked.`);
+    setUpdate({ status: 'ready', fresh, progress: 100 });
+  } catch (e) {
+    log(`Update download failed: ${e.message}`);
+    setUpdate({ status: 'error', message: e.message });
+  }
+}
+
+async function installUpdate() {
+  if (update.status !== 'ready' || !update.fresh) return;
+  const bundle = app.isPackaged ? bundlePath(app.getPath('exe')) : null;
+  const check = installable(bundle);
+  if (!check.ok) {
+    dialog.showMessageBox({ type: 'info', message: 'Cannot update this copy of FixMyMix', detail: `${check.reason}\n\nOr download the installer from ${RELEASES_URL}.` });
+    return;
+  }
+  log(`Installing update ${update.version} over ${bundle} and relaunching.`);
+  await stopServer();
+  launchInstaller({ bundle, fresh: update.fresh, pid: process.pid, scriptDir: updatesDir() });
+  app.exit(0);
 }
 
 const actions = {
@@ -111,26 +186,12 @@ const actions = {
   openLog() {
     shell.openPath(logFile());
   },
+  checkForUpdates: () => checkForUpdates(),
+  downloadUpdate,
+  installUpdate,
   async quit() {
     await stopServer();
     app.exit(0);
-  },
-  async setupHttps() {
-    try {
-      await createCertificate(dataDir());
-      await stopServer();
-      await startServer();
-      const urls = running?.httpsUrls ?? [];
-      dialog.showMessageBox({
-        type: 'info',
-        message: urls.length ? 'HTTPS is on.' : 'Certificate created, but https did not start.',
-        detail: urls.length
-          ? `The same address now also works as https:// —\n${urls.join('\n')}\n\nThe first time, a browser warns about the certificate: choose Advanced → Proceed (Safari: Show Details → visit this website).`
-          : 'Check the log for the reason.',
-      });
-    } catch (e) {
-      dialog.showErrorBox('Could not set up HTTPS', e.message);
-    }
   },
 };
 
@@ -235,6 +296,9 @@ app.whenReady().then(async () => {
   refresh();
   setInterval(refresh, 10_000).unref?.(); // the LAN address and device count change
   setInterval(watchdog, WATCHDOG_MS).unref?.();
+  // Quiet checks: the menu just gains an "Update to X" line when there is one.
+  setTimeout(() => checkForUpdates({ quiet: true }), UPDATE_CHECK_DELAY_MS).unref?.();
+  setInterval(() => checkForUpdates({ quiet: true }), UPDATE_CHECK_EVERY_MS).unref?.();
   if (SMOKE) await smoke();
 });
 
@@ -248,8 +312,18 @@ async function smoke() {
   });
   const labels = template.map((item) => item.label ?? (item.type === 'separator' ? '---' : '?'));
   await watchdog();
+  const updateTrail = [];
+  if (UPDATE_API) {
+    await checkForUpdates();
+    updateTrail.push(update.status);
+    if (update.status === 'available') {
+      await downloadUpdate();
+      updateTrail.push(update.status, readBundleVersion(update.fresh ?? ''));
+    }
+    // Not installed in smoke mode: that would replace whatever launched us.
+  }
   const logged = fs.existsSync(logFile());
-  console.log(`SMOKE ${JSON.stringify({ running: current.running, error: current.error, urls: current.urls, passcode: current.passcode, status, labels, keepAwake: blockerId !== null && powerSaveBlocker.isStarted(blockerId), logged, watchdogFailures })}`);
+  console.log(`SMOKE ${JSON.stringify({ running: current.running, error: current.error, urls: current.urls, passcode: current.passcode, status, labels: buildMenu(state(), actions).map((i) => i.label ?? (i.type === 'separator' ? '---' : '?')), keepAwake: blockerId !== null && powerSaveBlocker.isStarted(blockerId), logged, watchdogFailures, updateTrail })}`);
   await stopServer();
   app.exit(status === 200 && current.running ? 0 : 1);
 }

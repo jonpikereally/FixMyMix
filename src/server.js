@@ -239,7 +239,15 @@ function createDualServer(listener, tls) {
       socket.pause();
       socket.unshift(first);
       if (first[0] === 0x16) {
-        if (!secure) return socket.destroy();
+        if (!secure) {
+          // No certificate: answer the ClientHello with a proper fatal
+          // handshake_failure alert, then close. A clean "this server does
+          // not do TLS" is what browsers' https-first upgrades fall back from.
+          socket.resume();
+          socket.end(Buffer.from([0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 0x28]));
+          socket.once('end', () => socket.destroy());
+          return;
+        }
         secure.emit('connection', socket);
       } else {
         plain.emit('connection', socket);
@@ -255,17 +263,32 @@ function createDualServer(listener, tls) {
   return { front, plain, secure, hasTls: Boolean(secure) };
 }
 
-// Other stage tools (AbleSet, mixer remotes) like port 8080 too. Rather than
-// refuse to start, walk up to the next free port; every address the app shows
-// carries the real port, so nothing else needs to know.
+export const DEFAULT_PORT = 80;
+
+/**
+ * Port 80 first: the address is then just http://192.168.x.x, and a phone that
+ * insists on trying https:// hits port 443 — closed — and falls back to http
+ * without a warning page. If 80 is taken (AbleSet on the same Mac) or not
+ * permitted (Linux without root), fall back to 8080 and walk up from there;
+ * every address the app shows carries the real port, so nothing else needs
+ * to know.
+ */
+function candidates(port) {
+  const list = port === DEFAULT_PORT ? [80, 8080, 8081, 8082, 8083, 8084, 8085] : [];
+  for (let p = port; p < port + 10; p++) if (!list.includes(p)) list.push(p);
+  return list;
+}
+
 async function listenNearby(server, port, host, log) {
-  for (let candidate = port; candidate < port + 10; candidate++) {
+  const ports = candidates(port);
+  for (const [i, candidate] of ports.entries()) {
     try {
       await listen(server, candidate, host);
-      if (candidate !== port) log(`Port ${port} is in use; using ${candidate} instead.`);
+      if (candidate !== port) log(`Port ${port} is not available; using ${candidate} instead.`);
       return candidate;
     } catch (error) {
-      if (error.code !== 'EADDRINUSE' || candidate === port + 9) throw error;
+      const busy = error.code === 'EADDRINUSE' || error.code === 'EACCES';
+      if (!busy || i === ports.length - 1) throw error;
       server.removeAllListeners('error');
     }
   }
@@ -273,13 +296,17 @@ async function listenNearby(server, port, host, log) {
 }
 
 /**
- * Starts the LAN server. Resolves once it is listening. The one port serves
- * http and — given data/key.pem and data/cert.pem, created automatically when
- * openssl is available — https as well.
- * @returns {Promise<{ port: number, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
+ * Starts the LAN server. Resolves once it is listening. The one port answers
+ * both http and https: a self-signed certificate is created on first start
+ * (openssl), so a phone that insists on https:// still reaches the app —
+ * behind Safari's one-time certificate prompt — instead of a dead end, and
+ * laptops with MIDI controllers get the secure page they need. Port 443 is
+ * deliberately not served: on port 80 that leaves the phone's https attempt
+ * with nothing to connect to, which is what it silently falls back from.
+ * @returns {Promise<{ port: number, httpsPort: number|null, urls: string[], httpsUrls: string[], passcode: string, dataDir: string, close: () => Promise<void> }>}
  */
 export async function start({
-  port = Number(process.env.PORT) || 8080,
+  port = Number(process.env.PORT) || DEFAULT_PORT,
   host = process.env.HOST || '0.0.0.0',
   autoCert = process.env.FIXMYMIX_AUTO_CERT !== '0',
   dataDir = process.env.FIXMYMIX_DATA_DIR || path.join(ROOT, 'data'),
@@ -309,27 +336,29 @@ export async function start({
     try {
       await createCertificate(dataDir);
       tls = loadTls(dataDir);
-      log('Created a self-signed certificate so https:// works on the same port.');
+      log('Created a self-signed certificate; https:// is on.');
     } catch (error) {
-      log(`No https (${error.message}). Phones that insist on https will fall back to http.`);
+      log(`No https (${error.message}).`);
     }
   }
   const server = createDualServer(listener, tls);
   await listenNearby(server.front, port, host, log);
-
   const actualPort = server.front.address().port;
+
   const hosts = () => {
     const ips = lanAddresses();
     return ips.length ? ips : ['localhost'];
   };
+  const httpsPort = server.hasTls ? actualPort : null;
 
-  const urls = () => hosts().map((ip) => `http://${ip}:${actualPort}`);
-  const httpsUrls = () => (server.hasTls ? hosts().map((ip) => `https://${ip}:${actualPort}`) : []);
+  const urls = () => hosts().map((ip) => `http://${ip}${actualPort === 80 ? '' : `:${actualPort}`}`);
+  // https keeps the explicit port even on 80: https://host would mean 443.
+  const httpsUrls = () => (httpsPort ? hosts().map((ip) => `https://${ip}:${httpsPort}`) : []);
   addresses = () => ({ urls: urls(), httpsUrls: httpsUrls() });
 
   return {
     port: actualPort,
-    httpsPort: server.hasTls ? actualPort : null,
+    httpsPort,
     get passcode() {
       return auth.passcode;
     },
@@ -357,14 +386,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log('');
   console.log('  Performers open one of these on the same Wi-Fi:');
   for (const url of running.urls) console.log(`    ${url}`);
-  console.log(`  QR code for them to scan: http://localhost:${running.port}/join`);
+  console.log(`  QR code for them to scan: http://localhost${running.port === 80 ? '' : `:${running.port}`}/join`);
   if (running.httpsUrls.length) {
     console.log('');
-    console.log('  The same address also works as https:// (accept the certificate once) —');
-    console.log('  needed for MIDI controllers on other devices.');
-  } else {
-    console.log('');
-    console.log('  https is off (no certificate; see `npm run cert`). MIDI controllers on other devices need it.');
+    console.log('  For MIDI controllers on other laptops (accept the certificate once):');
+    for (const url of running.httpsUrls) console.log(`    ${url}`);
   }
   console.log('');
   console.log(`  Admin passcode: ${running.passcode}`);

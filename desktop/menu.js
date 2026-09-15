@@ -2,10 +2,11 @@
 
 export function buildMenu(state, actions) {
   const items = [];
-  const localUrl = `http://localhost:${state.port}`;
+  const localUrl = `http://localhost${state.port === 80 ? '' : `:${state.port}`}`;
 
+  const name = state.version ? `FixMyMix ${state.version}` : 'FixMyMix';
   if (state.starting) items.push({ label: 'Starting FixMyMix…', enabled: false });
-  else if (state.running) items.push({ label: 'FixMyMix is running', enabled: false });
+  else if (state.running) items.push({ label: `${name} is running`, enabled: false });
   else if (state.error) items.push({ label: `FixMyMix stopped: ${state.error}`, enabled: false });
   else items.push({ label: 'FixMyMix is stopped', enabled: false });
 
@@ -18,7 +19,7 @@ export function buildMenu(state, actions) {
       items.push({ label: url, toolTip: 'Copy address', click: () => actions.copy(url) });
     }
     for (const url of state.httpsUrls ?? []) {
-      items.push({ label: `${url}  (also works)`, toolTip: 'Copy https address — the same port; needed for MIDI controllers on other devices', click: () => actions.copy(url) });
+      items.push({ label: `${url}  (MIDI)`, toolTip: 'Copy https address — for MIDI controllers on other devices', click: () => actions.copy(url) });
     }
     items.push({ label: `Admin passcode: ${state.passcode}`, toolTip: 'Copy passcode', click: () => actions.copy(state.passcode) });
     items.push({ type: 'separator' });
@@ -26,9 +27,6 @@ export function buildMenu(state, actions) {
     items.push({ label: 'Open stage view', click: () => actions.open(`${localUrl}/stage`) });
     items.push({ label: 'Show QR code for performers', click: () => actions.open(`${localUrl}/join`) });
     items.push({ label: 'Show QR code for AbleSet', click: () => actions.open(`${localUrl}/join?app=ableset`) });
-    if (!(state.httpsUrls ?? []).length) {
-      items.push({ label: 'Set up HTTPS (for MIDI on other devices)…', click: () => actions.setupHttps() });
-    }
   }
 
   items.push({ type: 'separator' });
@@ -40,7 +38,33 @@ export function buildMenu(state, actions) {
   items.push({ label: 'Start at login', type: 'checkbox', checked: state.loginItem, click: () => actions.toggleLogin() });
   items.push({ label: 'Keep Mac awake while running', type: 'checkbox', checked: state.keepAwake !== false, click: () => actions.toggleKeepAwake() });
   items.push({ type: 'separator' });
+  items.push(...updateItems(state.update ?? { status: 'idle' }, actions));
   items.push({ label: 'Open log', click: () => actions.openLog() });
   items.push({ label: 'Quit FixMyMix', click: () => actions.quit() });
   return items;
+}
+
+/** The in-app updater's one or two menu lines, by state. */
+export function updateItems(update, actions) {
+  switch (update.status) {
+    case 'checking':
+      return [{ label: 'Checking for updates…', enabled: false }];
+    case 'uptodate':
+      return [{ label: `Up to date (${update.version}) — check again`, click: () => actions.checkForUpdates() }];
+    case 'available':
+      return [{ label: `Update to ${update.version} — download`, click: () => actions.downloadUpdate() }];
+    case 'downloading':
+      return [{ label: `Downloading ${update.version}… ${update.progress ?? 0}%`, enabled: false }];
+    case 'ready':
+      return [{ label: `Install ${update.version} and relaunch`, click: () => actions.installUpdate() }];
+    case 'error':
+      return [
+        { label: `Update failed: ${update.message ?? 'unknown error'}`, enabled: false },
+        { label: 'Try again', click: () => actions.checkForUpdates() },
+      ];
+    case 'unsupported':
+      return [{ label: 'Updates apply to the installed app', enabled: false }];
+    default:
+      return [{ label: 'Check for updates…', click: () => actions.checkForUpdates() }];
+  }
 }

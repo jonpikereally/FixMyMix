@@ -19,10 +19,11 @@ The first mode is **Mix mode**: performers ask the engineer for more or less of 
 - **MIDI controllers** — both pages can *MIDI learn* five actions (⚙ on the stage page, Setup on the admin page), per device: a note, a CC (fires when it crosses 64, so a 0/127 foot switch fires once per press) or a program change.
   - Stage: *next* / *previous* move a highlight through the channels, *up* / *down* arm more or less on it, *confirm* sends — so a slip of the foot doesn't fire a request. With nothing armed, *confirm* answers a desk message or clears a green confirmation.
   - Admin: *next* / *previous* step through pending items, *up* / *down* jump between members, *confirm* marks the highlighted one done.
-  - Browsers only expose Web MIDI on **secure pages** (https or `localhost`), and **Safari has none at all** — so no MIDI on iPhone/iPad. On the Mac running FixMyMix, open `http://localhost:8080` and it just works. For a stage laptop or Android device, use the `https://` form of the same address — the server creates a self-signed certificate on first start (or `npm run cert` / the menu-bar item *Set up HTTPS*), and each device accepts it once (Advanced → Proceed). Chrome alternatively lets you mark the http address as secure at `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
+  - Browsers only expose Web MIDI on **secure pages** (https or `localhost`), and **Safari has none at all** — so no MIDI on iPhone/iPad. On the Mac running FixMyMix, open `http://localhost` and it just works. For a stage laptop or Android device, use the `https://` form of the same address (shown in the FixMyMix menu) — the server creates a self-signed certificate on first start, and each device accepts it once (Advanced → Proceed). Chrome alternatively lets you mark the http address as secure at `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
 - Members and channels can carry an **icon** (🎤 🎸 🎻 🥁 🎹 🎵 🎶 🎺 🎷 🪘 🎙 🎧 🔊 🎛 ✨), shown on the stage page and the board. Icons are guessed from the name as you type (*Kick* → 🥁) and can be picked explicitly in the roster editor. They're emoji, so nothing is downloaded.
 - Everything is pushed live over Server-Sent Events with a polling fallback, so a phone that wakes from sleep catches up straight away.
-- One port serves both `http://` and `https://`. Newer iPhones try https first even for an http QR code; with the server's self-signed certificate that simply works (accept it once), and without one the attempt is refused cleanly so the phone falls back to http.
+- The server sits on port 80 by default, so the address is just `http://192.168.1.23`. Newer iPhones try https first even for an http QR code; with nothing on port 443 that attempt fails instantly and Safari falls back to http with no warning page.
+- The one port also answers `https://` with a self-signed certificate the server creates on first start. That is what laptops with MIDI controllers use (`https://192.168.1.23:80`, accept the certificate once), and it is the safety net when FixMyMix has to share a laptop with **AbleSet**, which owns port 80: FixMyMix then runs on 8080, a phone's https attempt lands on FixMyMix's own port, and it either falls back to http by itself or shows Safari's certificate warning once — *Show Details → visit this website* — after which it just works, and Safari remembers.
 
 ## Running it
 
@@ -35,7 +36,7 @@ A tray icon that runs the server and shows the address and passcode:
 ```
 FixMyMix is running
 Performers open (click to copy):
-  http://192.168.1.23:8080
+  http://192.168.1.23
 Admin passcode: 1234
 Open admin board
 Open stage view
@@ -65,7 +66,11 @@ Every tagged version has a ready-made installer on the [Releases page](https://g
 
 First launch on a new Mac: the app isn't notarised, so macOS will object once. **Right-click FixMyMix → Open**; on macOS 15 or later you may instead need **System Settings → Privacy & Security → Open Anyway** after the first attempt. (Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/FixMyMix.app`.) It also asks whether FixMyMix may accept incoming connections — **Allow**.
 
-To make an installer yourself on a Mac that has the source: `npm run app:dmg` builds a universal (Intel + Apple Silicon) app and writes `~/Desktop/FixMyMix-build/FixMyMix-<version>.dmg`. Tagging a commit `vX.Y.Z` and pushing the tag makes GitHub build and publish it (`.github/workflows/release.yml`).
+To make an installer yourself on a Mac that has the source: `npm run app:dmg` builds a universal (Intel + Apple Silicon) app and writes `~/Desktop/FixMyMix-build/FixMyMix-<version>.dmg`. GitHub builds and publishes it too: push a `vX.Y.Z` tag, or run the *Release* workflow from the Actions tab, which tags the current version from `package.json` and publishes the release (`.github/workflows/release.yml`).
+
+### Updating
+
+The menu-bar app updates itself: **Check for updates…** in its menu asks GitHub for the newest release (it also checks quietly on launch and every few hours, and the menu shows *Update to X* when there is one). Choose it to download, then **Install and relaunch** — the app swaps the new build into Applications and reopens. Internet is needed only for that moment, never during a show. If the app is running from the disk image or from a source folder it says so and points at the Releases page instead.
 
 ### From the terminal
 
@@ -81,7 +86,7 @@ The terminal prints the LAN address(es) and the admin passcode:
 
 ```
   Performers open one of these on the same Wi-Fi:
-    http://192.168.1.23:8080
+    http://192.168.1.23
 
   Admin passcode: 1234
 ```
@@ -90,17 +95,17 @@ The terminal prints the LAN address(es) and the admin passcode:
 2. Open `/admin` on the engineer's device, enter the passcode, run **Quick setup**, rename members and channels.
 3. Performers open the LAN address, tap **I'm on stage**, pick their name. Adding the page to the home screen gives a full-screen view. Easiest: open **`/join`** (the *QR* button on the board, or *Show QR code for performers* in the menu bar) and let them scan the code — it's generated by the app itself, no internet involved. The same page makes a code for **AbleSet** (this computer's address, plus a port only if AbleSet shows one) or for **any address** on the network — a mixer's remote page, a lyrics screen.
 
-The admin board is just a web page too, so it can run on an iPad (or a phone, or a second laptop) on the same Wi-Fi: open `http://<address>:8080/admin`, enter the passcode, and use Share → *Add to Home Screen* for a full-screen board. Any number of admin devices can be open at once. The server itself still runs on the Mac — an iPad can't host it.
+The admin board is just a web page too, so it can run on an iPad (or a phone, or a second laptop) on the same Wi-Fi: open `http://<address>/admin`, enter the passcode, and use Share → *Add to Home Screen* for a full-screen board. Any number of admin devices can be open at once. The server itself still runs on the Mac — an iPad can't host it.
 
 ### Options
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PORT` | `8080` | Port to listen on; if it's taken (AbleSet also likes 8080) the next free one up to +9 is used, and every address shown carries the real port |
+| `PORT` | `80` | Port to listen on. 80 gives a port-less address (`http://192.168.1.23`); if it's taken or not permitted, 8080 and up are tried. Every address shown carries the real port |
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `ADMIN_PASSCODE` | — | Forces the admin passcode at startup (4–12 digits); otherwise the last one set in Setup is used, `1234` to begin with |
-| `FIXMYMIX_AUTO_CERT` | `1` | Set to `0` to stop the server creating a self-signed certificate on first start |
-| `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests, messages), `config.json` (passcode, session secret) and the optional certificate live |
+| `FIXMYMIX_AUTO_CERT` | `1` | Set to `0` to run without a certificate (https attempts are then refused with a TLS alert instead of served) |
+| `FIXMYMIX_DATA_DIR` | `./data` | Where `state.json` (roster, requests, messages), `config.json` (passcode, session secret) and the self-signed certificate live |
 
 State is saved to disk after every change, so restarting the server mid-show keeps the roster, the board and admin logins. The passcode starts as `1234` — the lock is there to stop a performer wandering into the board by accident on a private stage Wi-Fi, not to resist an attacker. Change it in **Setup → Admin passcode**; it's saved with the show, other admin devices are logged out, and the menu bar shows the new one. These variables apply to both the terminal and the menu-bar app (the app ignores `FIXMYMIX_DATA_DIR` and uses the Application Support folder).
 
@@ -139,7 +144,7 @@ src/state.js      Show state and the request rules (pure)
 src/api.js        The API routes and SSE hub, independent of transport
 src/auth.js       Passcode check: Web Crypto HMAC, constant-time compare
 src/server.js     Node HTTP(S) adapter, static files, persistence, security headers
-src/tls.js        Optional self-signed certificate (needed for Web MIDI off-host)
+src/tls.js        Self-signed certificate (created on first start)
 public/           Static app: landing, stage, admin and join pages, no build step
                   (js/midi.js: Web MIDI learn; js/qr.js: QR encoder for the join page)
 desktop/          Menu-bar app (Electron): tray menu, icons, packaging plist
