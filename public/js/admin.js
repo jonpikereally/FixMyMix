@@ -14,7 +14,7 @@ const ui = {
   memberCount: $('memberCount'), channelCount: $('channelCount'), quickSetup: $('quickSetup'),
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
-  allowMessages: $('allowMessages'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'),
+  allowMessages: $('allowMessages'), buzzDefault: $('buzzDefault'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'), messageBuzz: $('messageBuzz'),
   adminMidiPanel: $('adminMidiPanel'), qrLink: $('qrLink'),
   currentPasscode: $('currentPasscode'), newPasscode: $('newPasscode'), savePasscode: $('savePasscode'),
 };
@@ -130,18 +130,26 @@ function messageRow(message) {
 
 function outgoingRow(message) {
   return el('div', { class: 'outgoing' }, [
-    el('span', { class: 'muted', text: 'You: ' }),
+    el('span', { class: 'muted', text: message.buzz ? 'You (buzz): ' : 'You: ' }),
     el('span', { class: 'quote', text: message.text }),
     el('span', { class: 'muted small', text: ' — waiting for a Got it' }),
   ]);
 }
 
 let composerKey = '';
+let buzzDefaultSeen = null;
 function renderComposer() {
   const show = admin && view === 'board' && Boolean(state.show.messaging);
   ui.adminComposer.classList.toggle('hidden', !show);
   document.body.classList.toggle('has-composer', show);
   if (!show) return;
+  // The Buzz tick follows the Setup default whenever that default changes; the
+  // admin can still flip it per message.
+  const buzzDefault = Boolean(state.show.buzzDefault);
+  if (buzzDefault !== buzzDefaultSeen) {
+    buzzDefaultSeen = buzzDefault;
+    ui.messageBuzz.checked = buzzDefault;
+  }
   const key = state.members.map((m) => `${m.id}:${m.name}`).join('|');
   if (key === composerKey) return;
   composerKey = key;
@@ -369,6 +377,7 @@ function render() {
   keepScreenAwake(admin); // the board must stay visible through the set
 
   ui.allowMessages.checked = Boolean(state.show.messaging);
+  ui.buzzDefault.checked = Boolean(state.show.buzzDefault);
   if (!admin) {
     ui.passcode.focus();
     ui.adminComposer.classList.add('hidden');
@@ -434,16 +443,19 @@ ui.newPasscode.addEventListener('keydown', (event) => {
   }
 });
 ui.allowMessages.addEventListener('change', () => act(() => post('/api/admin/show', { messaging: ui.allowMessages.checked }), ui.allowMessages.checked ? 'Messages on' : 'Messages off'));
+ui.buzzDefault.addEventListener('change', () => act(() => post('/api/admin/show', { buzzDefault: ui.buzzDefault.checked }), ui.buzzDefault.checked ? 'Messages buzz by default' : 'Messages no longer buzz by default'));
 
 ui.adminComposer.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = ui.adminMessageText.value.trim();
   if (!text) return;
   const to = ui.messageTo.value;
+  const buzz = ui.messageBuzz.checked;
   act(async () => {
-    await post('/api/admin/messages', to === 'all' ? { all: true, text } : { memberId: to, text });
+    await post('/api/admin/messages', { ...(to === 'all' ? { all: true } : { memberId: to }), text, buzz });
     ui.adminMessageText.value = '';
-  }, to === 'all' ? 'Sent to everyone' : 'Sent');
+    ui.messageBuzz.checked = Boolean(state.show.buzzDefault);
+  }, `${to === 'all' ? 'Sent to everyone' : 'Sent'}${buzz ? ' with buzz' : ''}`);
 });
 
 ui.quickSetup.addEventListener('click', () => {

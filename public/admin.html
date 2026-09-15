@@ -75,6 +75,13 @@
             <span class="muted small">Performers get a text field to message the desk, and you can message one of them or everyone from the board. Applies immediately.</span>
           </span>
         </label>
+        <label class="setting">
+          <input id="buzzDefault" type="checkbox">
+          <span>
+            <strong>Send with buzz by default</strong>
+            <span class="muted small">Pre-ticks <em>Buzz</em> on the message box. A buzzed message vibrates the performer's device and fills their screen until they dismiss it — they can't use their channels until then.</span>
+          </span>
+        </label>
       </div>
 
       <div class="card">
@@ -126,6 +133,7 @@
     <div class="inner">
       <select id="messageTo" aria-label="Send to"></select>
       <input id="adminMessageText" type="text" maxlength="200" placeholder="Message…" autocomplete="off" aria-label="Message">
+      <label class="check" title="Vibrate their device and show the message in front of the channels until they dismiss it"><input id="messageBuzz" type="checkbox"> Buzz</label>
       <button class="primary" type="submit">Send</button>
     </div>
   </form>

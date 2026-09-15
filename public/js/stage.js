@@ -32,6 +32,8 @@ const ui = {
   channels: document.getElementById('channels'),
   hint: document.getElementById('hint'),
   deskMessages: document.getElementById('deskMessages'),
+  buzzOverlay: document.getElementById('buzzOverlay'),
+  buzzMessages: document.getElementById('buzzMessages'),
   myMessages: document.getElementById('myMessages'),
   composer: document.getElementById('composer'),
   messageText: document.getElementById('messageText'),
@@ -81,6 +83,11 @@ function midiAction(action) {
   const member = currentMember();
   if (!member || !member.channels.length) return;
   const count = member.channels.length;
+  if (overlayOpen()) {
+    const buzzed = state.messages.find((m) => m.memberId === member.id && m.from === 'admin' && m.status === 'pending' && m.buzz);
+    if (action === 'confirm' && buzzed) act(() => post('/api/messages/ack', { memberId: member.id, messageId: buzzed.id }));
+    return;
+  }
   if (action === 'next' || action === 'prev') {
     cursor = (cursor + (action === 'next' ? 1 : count - 1)) % count;
     armed = null;
@@ -184,20 +191,27 @@ function renderMessages(member) {
   const mine = state.messages.filter((m) => m.memberId === member.id);
   const now = Date.now();
 
-  // Desk → me: needs a "Got it".
+  // Desk → me: needs a "Got it". A message sent with buzz takes over the
+  // screen (and vibrates harder) until it is dismissed; the rest sit above
+  // the channels.
   const fromDesk = mine.filter((m) => m.from === 'admin' && m.status === 'pending');
-  let buzz = false;
+  let fresh = false;
+  let freshBuzz = false;
   for (const m of fromDesk) {
     if (!seenDeskMessages.has(m.id)) {
       seenDeskMessages.add(m.id);
-      buzz = true;
+      if (m.buzz) freshBuzz = true; else fresh = true;
     }
   }
-  if (buzz) vibrate([200, 80, 200]);
+  if (freshBuzz) buzz({ quiet: true });
+  else if (fresh) vibrate([200, 80, 200]);
+  const gotIt = (m) => el('button', { type: 'button', class: 'done-btn', text: 'Got it', onclick: () => act(() => post('/api/messages/ack', { memberId: member.id, messageId: m.id })) });
   ui.deskMessages.replaceChildren(
-    ...fromDesk.map((m) => messageCard('desk', 'From the desk', m.text,
-      el('button', { type: 'button', class: 'done-btn', text: 'Got it', onclick: () => act(() => post('/api/messages/ack', { memberId: member.id, messageId: m.id })) }))),
+    ...fromDesk.filter((m) => !m.buzz).map((m) => messageCard('desk', 'From the desk', m.text, gotIt(m))),
   );
+  const buzzed = fromDesk.filter((m) => m.buzz);
+  ui.buzzMessages.replaceChildren(...buzzed.map((m) => messageCard('desk buzzed', 'Buzz', m.text, gotIt(m))));
+  setOverlay(buzzed.length > 0);
 
   // Me → desk: Sent, then Seen ✓ once the desk clears it.
   let vibrated = false;
@@ -360,6 +374,7 @@ function render() {
   const member = currentMember();
   if (!member) {
     if (memberId) saveMember(null);
+    setOverlay(false);
     renderPicker();
     ui.composer.classList.add('hidden');
     document.body.classList.remove('has-composer');
@@ -403,7 +418,7 @@ ui.swipe.addEventListener('change', () => {
 // Swipe on a channel row or box: a quick flick up sends "more", down "less".
 let touchStart = null;
 ui.channels.addEventListener('touchstart', (event) => {
-  if (!settings.swipe || event.touches.length !== 1) return;
+  if (!settings.swipe || overlayOpen() || event.touches.length !== 1) return;
   const target = event.target.closest('[data-channel]');
   if (!target) return;
   const touch = event.touches[0];
@@ -454,12 +469,28 @@ ui.composer.addEventListener('submit', (event) => {
 
 // The desk's "buzz": vibrate and flash so the whole band can be checked at once.
 let flashTimer = null;
-function buzz() {
+function buzz({ quiet = false } = {}) {
   vibrate([300, 100, 300, 100, 300]);
   document.body.classList.add('flash');
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => document.body.classList.remove('flash'), 1800);
-  toast('The desk is buzzing you 👋');
+  if (!quiet) toast('The desk is buzzing you 👋');
+}
+
+// While a buzzed message is up, the channels (and the rest of the page) are
+// inert: the performer has to dismiss it first.
+function overlayOpen() {
+  return !ui.buzzOverlay.classList.contains('hidden');
+}
+function setOverlay(open) {
+  if (open === overlayOpen()) return;
+  ui.buzzOverlay.classList.toggle('hidden', !open);
+  document.body.classList.toggle('modal', open);
+  for (const node of document.body.children) {
+    if (node === ui.buzzOverlay || node.tagName === 'SCRIPT') continue;
+    if (open) node.setAttribute('inert', ''); else node.removeAttribute('inert');
+  }
+  if (open) ui.buzzMessages.querySelector('button')?.focus();
 }
 
 for (const input of ui.layoutInputs) {

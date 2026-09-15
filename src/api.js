@@ -216,7 +216,7 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
     'POST /admin/messages': async (req) => {
       await requireAdmin(req);
       const body = await req.json();
-      return ok({ sent: store.sendAdminMessage({ memberId: String(body.memberId ?? ''), all: body.all === true, text: String(body.text ?? '') }) });
+      return ok({ sent: store.sendAdminMessage({ memberId: String(body.memberId ?? ''), all: body.all === true, text: String(body.text ?? ''), buzz: body.buzz === true }) });
     },
 
     'POST /admin/resolve': async (req) => {
@@ -249,6 +249,7 @@ export function createApi({ store, auth, cookieName = 'fmm_admin', secureCookies
       return ok(store.setShow({
         name: body.name === undefined ? undefined : String(body.name),
         messaging: body.messaging === undefined ? undefined : body.messaging === true,
+        buzzDefault: body.buzzDefault === undefined ? undefined : body.buzzDefault === true,
       }));
     },
 
