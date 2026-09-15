@@ -167,6 +167,13 @@ test('messaging routes: setting toggle, member send, admin send, ack and resolve
   await assert.rejects(call('POST', '/messages/ack', { body: { memberId: alex.id, messageId: mine.id } }), (e) => e.status === 409);
   const ack = await call('POST', '/messages/ack', { body: { memberId: sam.id, messageId: mine.id } });
   assert.equal(ack.json.message.status, 'done');
+  assert.equal(mine.buzz, false);
+
+  const buzzed = await call('POST', '/admin/messages', { body: { memberId: alex.id, text: 'Look up', buzz: true }, cookies });
+  assert.equal(buzzed.json.sent[0].buzz, true);
+  const withDefault = await call('POST', '/admin/show', { body: { buzzDefault: true }, cookies });
+  assert.equal(withDefault.json.show.buzzDefault, true);
+  assert.equal(withDefault.json.show.messaging, true, 'other show settings untouched');
 
   for (let i = 0; i < 4; i++) await call('POST', '/messages', { body: { memberId: alex.id, text: `m${i}` } }); // 6 per 10 s, incl. the two attempts above
   await assert.rejects(call('POST', '/messages', { body: { memberId: alex.id, text: 'too many' } }), (e) => e.status === 429);

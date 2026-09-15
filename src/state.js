@@ -139,6 +139,7 @@ function normalizeMessages(raw, members) {
       memberId,
       memberName: text(entry?.memberName, index.get(memberId)?.name ?? 'Unknown'),
       text: body,
+      buzz: entry?.buzz === true,
       status,
       createdAt,
       resolvedAt: status === 'done' ? clamp(entry?.resolvedAt, 0, Number.MAX_SAFE_INTEGER, createdAt) : null,
@@ -156,7 +157,11 @@ export class Store {
 
   constructor(initial = {}) {
     this.rev = clamp(initial.rev, 1, Number.MAX_SAFE_INTEGER, 1);
-    this.show = { name: text(initial.show?.name, 'FixMyMix', 60), messaging: initial.show?.messaging === true };
+    this.show = {
+      name: text(initial.show?.name, 'FixMyMix', 60),
+      messaging: initial.show?.messaging === true,
+      buzzDefault: initial.show?.buzzDefault === true,
+    };
     this.members = normalizeMembers(initial.members);
     this.requests = normalizeRequests(initial.requests, this.members);
     this.messages = normalizeMessages(initial.messages, this.members);
@@ -212,9 +217,10 @@ export class Store {
     return this.setShow({ name });
   }
 
-  setShow({ name, messaging } = {}) {
+  setShow({ name, messaging, buzzDefault } = {}) {
     if (name !== undefined) this.show.name = text(name, 'FixMyMix', 60);
     if (messaging !== undefined) this.show.messaging = messaging === true;
+    if (buzzDefault !== undefined) this.show.buzzDefault = buzzDefault === true;
     return this.#commit();
   }
 
@@ -350,7 +356,7 @@ export class Store {
     return resolved;
   }
 
-  #newMessage(from, member, body) {
+  #newMessage(from, member, body, { buzz = false } = {}) {
     const now = Date.now();
     const message = {
       id: newId(),
@@ -358,6 +364,7 @@ export class Store {
       memberId: member.id,
       memberName: member.name,
       text: body,
+      buzz,
       status: 'pending',
       createdAt: now,
       resolvedAt: null,
@@ -381,12 +388,16 @@ export class Store {
     return { ...message };
   }
 
-  /** The desk writes to one performer, or to everyone (one message each). */
-  sendAdminMessage({ memberId, all = false, text: value }) {
+  /**
+   * The desk writes to one performer, or to everyone (one message each).
+   * `buzz` marks it urgent: the performer's device vibrates and shows the
+   * message in front of the channels until they dismiss it.
+   */
+  sendAdminMessage({ memberId, all = false, text: value, buzz = false }) {
     if (!this.show.messaging) throw new StoreError('messaging_off', 'Messages are switched off for this show.');
     const body = this.#messageText(value);
     const targets = all ? this.members : [this.#member(memberId)];
-    const sent = targets.map((member) => ({ ...this.#newMessage('admin', member, body) }));
+    const sent = targets.map((member) => ({ ...this.#newMessage('admin', member, body, { buzz: buzz === true }) }));
     if (sent.length) this.#commit();
     return sent;
   }
