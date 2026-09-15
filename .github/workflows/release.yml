@@ -40,11 +40,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: FixMyMix-installer
-          path: build/*.dmg
+          path: |
+            build/*.dmg
+            build/*.zip
           if-no-files-found: error
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: FixMyMix ${{ steps.meta.outputs.tag }}
-          files: build/*.dmg
+          files: |
+            build/*.dmg
+            build/*.zip
           generate_release_notes: true

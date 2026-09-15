@@ -1,6 +1,6 @@
 {
   "name": "fixmymix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "On-stage monitor mix request system. Runs on a local network, no internet required.",
   "type": "module",
