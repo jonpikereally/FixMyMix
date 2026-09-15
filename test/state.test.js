@@ -217,3 +217,19 @@ test('messages survive a round trip and roster edits drop orphans', () => {
   restored.clearHistory();
   assert.equal(restored.messages.length, 1);
 });
+
+test('desk messages can be sent with buzz, and the default is a show setting', () => {
+  const { store, alex, sam } = setup();
+  assert.equal(store.show.buzzDefault, false);
+  store.setShow({ messaging: true, buzzDefault: true });
+  assert.equal(store.show.buzzDefault, true);
+  const plain = store.sendAdminMessage({ memberId: alex.id, text: 'plain' });
+  assert.equal(plain[0].buzz, false);
+  const buzzed = store.sendAdminMessage({ all: true, text: 'Turn round!', buzz: true });
+  assert.deepEqual(buzzed.map((m) => m.buzz), [true, true]);
+  assert.equal(store.sendAdminMessage({ memberId: sam.id, text: 'x', buzz: 'yes' })[0].buzz, false, 'buzz must be boolean true');
+  const restored = new Store(JSON.parse(JSON.stringify(store.snapshot())));
+  assert.equal(restored.show.buzzDefault, true);
+  assert.deepEqual(restored.pendingMessages().filter((m) => m.buzz).map((m) => m.text), ['Turn round!', 'Turn round!']);
+  assert.equal(restored.ackMessage({ memberId: alex.id, messageId: buzzed[0].id }).status, 'done');
+});
