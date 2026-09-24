@@ -233,3 +233,22 @@ test('desk messages can be sent with buzz, and the default is a show setting', (
   assert.deepEqual(restored.pendingMessages().filter((m) => m.buzz).map((m) => m.text), ['Turn round!', 'Turn round!']);
   assert.equal(restored.ackMessage({ memberId: alex.id, messageId: buzzed[0].id }).status, 'done');
 });
+
+test('a priority ("can\'t hear") request stays urgent through escalation and a restart', () => {
+  const { store, alex } = setup();
+  const channel = alex.channels[0];
+  const plain = store.submitRequest({ memberId: alex.id, channelId: channel.id, direction: 'more' });
+  assert.equal(plain.priority, false);
+  const urgent = store.submitRequest({ memberId: alex.id, channelId: channel.id, direction: 'more', priority: true });
+  assert.equal(urgent.id, plain.id, 'escalates the existing request');
+  assert.equal(urgent.priority, true);
+  assert.equal(urgent.count, 2);
+  const again = store.submitRequest({ memberId: alex.id, channelId: channel.id, direction: 'more' });
+  assert.equal(again.priority, true, 'a later plain tap does not downgrade it');
+  assert.equal(store.submitRequest({ memberId: alex.id, channelId: channel.id, direction: 'more', priority: 'yes' }).priority, true, 'non-boolean priority is ignored, existing flag kept');
+  const restored = new Store(JSON.parse(JSON.stringify(store.snapshot())));
+  assert.equal(restored.pending()[0].priority, true);
+  store.resolveRequest(urgent.id);
+  const fresh = store.submitRequest({ memberId: alex.id, channelId: channel.id, direction: 'less', priority: 'yes' });
+  assert.equal(fresh.priority, false, 'only boolean true marks a new request urgent');
+});

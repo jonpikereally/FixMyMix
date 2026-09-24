@@ -78,6 +78,10 @@ test('performer request → admin resolve round trip', async () => {
   const channel = member.channels[0];
   const sent = await call('POST', '/requests', { body: { memberId: member.id, channelId: channel.id, direction: 'more' } });
   assert.equal(sent.json.request.status, 'pending');
+  assert.equal(sent.json.request.priority, false);
+  const urgent = await call('POST', '/requests', { body: { memberId: member.id, channelId: channel.id, direction: 'more', priority: true } });
+  assert.equal(urgent.json.request.priority, true);
+  assert.equal(urgent.json.request.id, sent.json.request.id);
   const cookies = await login(call);
   const done = await call('POST', '/admin/resolve', { body: { requestId: sent.json.request.id }, cookies });
   assert.equal(done.json.resolved[0].status, 'done');
@@ -310,4 +314,39 @@ test('band setups: save, list, load, export as a download, import, delete — ad
   const removed = await call('POST', '/admin/setups/delete', { body: { id: saved.json.saved.id }, cookies });
   assert.equal(removed.json.removed.name, 'Friday trio');
   assert.equal(removed.json.setups.length, 3);
+});
+
+test('show log routes: list with summary, CSV download, clear with journal', async () => {
+  const { store, call } = setup();
+  const [alex] = store.members;
+  for (const [method, path] of [['GET', '/admin/history'], ['GET', '/admin/history/export']]) await assert.rejects(call(method, path), (e) => e.status === 401, path);
+  const cookies = await login(call);
+  const empty = await call('GET', '/admin/history', { cookies });
+  assert.deepEqual(empty.json.entries, []);
+  assert.equal(empty.json.summary.total, 0);
+  // nothing recorded without a History wired to the store events; wire one like the server does
+  const { History } = await import('../src/history.js');
+  const history = new History();
+  store.subscribeEvents((e) => history.record(e));
+  const api2 = createApi({ store, auth: createAuth({ secret: 'a'.repeat(64), passcode: PASSCODE }), history });
+  const call2 = (method, path, { body = {}, cookies = {}, ip = '10.0.0.1', query = {} } = {}) => api2.handle({ method, path, cookies, ip, query, json: async () => body });
+  const cookies2 = await login(call2);
+  const r = await call2('POST', '/requests', { body: { memberId: alex.id, channelId: alex.channels[0].id, direction: 'more' } });
+  await call2('POST', '/admin/resolve', { body: { requestId: r.json.request.id }, cookies: cookies2 });
+  const listed = await call2('GET', '/admin/history', { cookies: cookies2 });
+  assert.equal(listed.json.entries.length, 1);
+  assert.equal(listed.json.entries[0].channelName, alex.channels[0].name);
+  assert.equal(listed.json.summary.requests, 1);
+  assert.equal(listed.json.show, 'FixMyMix');
+  const csv = await call2('GET', '/admin/history/export', { cookies: cookies2 });
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers['Content-Type'], /^text\/csv/);
+  assert.match(csv.headers['Content-Disposition'], /^attachment; filename="FixMyMix-fixmymix-\d{4}-\d{2}-\d{2}\.csv"$/);
+  assert.ok(csv.body.startsWith('Show,Asked at (UTC),Performer'));
+  assert.equal(csv.body.trim().split('\r\n').length, 2);
+  // clearing the recent list alone keeps the log; journal: true wipes it
+  await call2('POST', '/admin/history/clear', { body: {}, cookies: cookies2 });
+  assert.equal((await call2('GET', '/admin/history', { cookies: cookies2 })).json.entries.length, 1);
+  await call2('POST', '/admin/history/clear', { body: { journal: true }, cookies: cookies2 });
+  assert.equal((await call2('GET', '/admin/history', { cookies: cookies2 })).json.entries.length, 0);
 });

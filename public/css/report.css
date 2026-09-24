@@ -1,0 +1,36 @@
+/* The printable show report: light, plain, and paper-friendly. */
+:root { --ink: #111; --muted: #666; --line: #ddd; --accent: #2f5cff; --danger: #c81e1e; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #fff; color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
+.toolbar { display: flex; gap: 12px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line); background: #f7f7f9; position: sticky; top: 0; }
+.toolbar a { color: var(--accent); text-decoration: none; }
+.grow { flex: 1; }
+.btn { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); font: inherit; cursor: pointer; text-decoration: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+h1 { margin: 0 0 4px; font-size: 1.6rem; }
+h2 { margin: 28px 0 8px; font-size: 1.15rem; border-bottom: 2px solid var(--ink); padding-bottom: 4px; }
+.muted { color: var(--muted); }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 18px 0; }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.stat .n { font-size: 1.5rem; font-weight: 700; display: block; }
+.stat .l { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 0.92rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.time { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
+tr.priority td.what { color: var(--danger); font-weight: 700; }
+tr.cancelled td.what { color: var(--muted); text-decoration: line-through; }
+.member-head { display: flex; gap: 12px; align-items: baseline; }
+.member-head .muted { font-size: 0.85rem; }
+.login { border: 1px solid var(--line); border-radius: 8px; padding: 16px; max-width: 420px; }
+.login input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; width: 100%; margin: 8px 0 12px; }
+@media print {
+  .no-print { display: none !important; }
+  main { max-width: none; padding: 0; }
+  h2 { break-after: avoid; }
+  tr { break-inside: avoid; }
+  body { font-size: 11pt; }
+  @page { margin: 16mm; }
+}
