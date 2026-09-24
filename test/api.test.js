@@ -78,6 +78,10 @@ test('performer request → admin resolve round trip', async () => {
   const channel = member.channels[0];
   const sent = await call('POST', '/requests', { body: { memberId: member.id, channelId: channel.id, direction: 'more' } });
   assert.equal(sent.json.request.status, 'pending');
+  assert.equal(sent.json.request.priority, false);
+  const urgent = await call('POST', '/requests', { body: { memberId: member.id, channelId: channel.id, direction: 'more', priority: true } });
+  assert.equal(urgent.json.request.priority, true);
+  assert.equal(urgent.json.request.id, sent.json.request.id);
   const cookies = await login(call);
   const done = await call('POST', '/admin/resolve', { body: { requestId: sent.json.request.id }, cookies });
   assert.equal(done.json.resolved[0].status, 'done');

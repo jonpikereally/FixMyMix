@@ -1,6 +1,7 @@
-import { watchState, post, get, toast, el, ago, keepScreenAwake } from './net.js';
+import { watchState, post, get, toast, el, ago, keepScreenAwake, vibrate } from './net.js';
 import { ICONS, glyph, guessIcon } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
+import { createKeys, renderKeysPanel } from './keys.js';
 
 const OLD_AFTER_MS = 30_000;
 
@@ -15,7 +16,7 @@ const ui = {
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
   allChannelName: $('allChannelName'), addToAll: $('addToAll'),
   allowMessages: $('allowMessages'), buzzDefault: $('buzzDefault'), adminComposer: $('adminComposer'), messageTo: $('messageTo'), adminMessageText: $('adminMessageText'), messageBuzz: $('messageBuzz'),
-  adminMidiPanel: $('adminMidiPanel'), qrLink: $('qrLink'),
+  adminMidiPanel: $('adminMidiPanel'), adminKeysPanel: $('adminKeysPanel'), alertSound: $('alertSound'), qrLink: $('qrLink'),
   setupName: $('setupName'), saveSetup: $('saveSetup'), setups: $('setups'), exportCurrent: $('exportCurrent'), importSetup: $('importSetup'), importFile: $('importFile'),
   currentPasscode: $('currentPasscode'), newPasscode: $('newPasscode'), savePasscode: $('savePasscode'),
 };
@@ -24,6 +25,41 @@ let state = null;
 let admin = false;
 let passcode = null; // revealed by the session once logged in
 let view = 'board';
+let alertSound = false;
+try { alertSound = localStorage.getItem('fixmymix.alertSound') === '1'; } catch { /* private mode */ }
+// Priority ("can't hear") requests already alerted for, so a re-render doesn't alert again.
+const alertedPriority = new Set();
+let alertTimer = null;
+let audio = null;
+
+function beep() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    const t = audio.currentTime;
+    for (const [at, freq] of [[0, 880], [0.18, 880], [0.36, 1175]]) {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t + at);
+      gain.gain.exponentialRampToValueAtTime(0.15, t + at + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.14);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t + at);
+      osc.stop(t + at + 0.16);
+    }
+  } catch {
+    // No audio here; the flash and the red row carry the alert.
+  }
+}
+
+function priorityAlert() {
+  document.body.classList.add('flash');
+  clearTimeout(alertTimer);
+  alertTimer = setTimeout(() => document.body.classList.remove('flash'), 1800);
+  vibrate([200, 80, 200, 80, 500]);
+  if (alertSound) beep();
+}
 let draft = null; // editable copy of the roster while on the Setup tab
 let setups = null; // saved band setups, fetched when the Setup tab opens
 
@@ -43,11 +79,40 @@ const midi = createMidi({
   onChange: () => render(),
 });
 
+// Keyboard shortcuts: the MIDI actions plus a couple that only make sense with a keyboard.
+const KEY_LABELS = {
+  ...MIDI_LABELS,
+  clearAll: { title: 'Clear all', hint: 'Mark every pending request and message done' },
+  message: { title: 'Message box', hint: 'Jump to the message box at the bottom of the board' },
+};
+const keys = createKeys({
+  actions: Object.keys(KEY_LABELS),
+  storageKey: 'fixmymix.keys.admin',
+  onAction: (action) => keyAction(action),
+  onChange: () => render(),
+});
+const controllerActive = () => midi.active() || keys.active();
+
+function keyAction(action) {
+  if (!admin || !state) return;
+  if (action === 'clearAll') {
+    if (state.requests.some((r) => r.status === 'pending') || state.messages.some((m) => m.status === 'pending' && m.from === 'member')) act(() => post('/api/admin/resolve', { all: true }), 'Board cleared');
+    return;
+  }
+  if (action === 'message') {
+    if (view !== 'board') { view = 'board'; render(); }
+    if (!ui.adminComposer.classList.contains('hidden')) ui.adminMessageText.focus();
+    else toast('Turn on Allow messages in Setup first', { error: true });
+    return;
+  }
+  midiAction(action);
+}
+
 function boardItems() {
   const pending = state.requests.filter((r) => r.status === 'pending');
   const inbox = state.messages.filter((m) => m.status === 'pending' && m.from === 'member');
   return state.members.flatMap((member) => [
-    ...pending.filter((r) => r.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt).map((r) => ({ id: r.id, memberId: member.id, kind: 'request' })),
+    ...pending.filter((r) => r.memberId === member.id).sort(byUrgency).map((r) => ({ id: r.id, memberId: member.id, kind: 'request' })),
     ...inbox.filter((m) => m.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt).map((m) => ({ id: m.id, memberId: member.id, kind: 'message' })),
   ]);
 }
@@ -80,7 +145,7 @@ function midiAction(action) {
 }
 
 function applyCursor() {
-  if (!midi.active()) return;
+  if (!controllerActive()) return;
   const items = boardItems();
   if (!items.some((item) => item.id === cursorId)) cursorId = items[0]?.id ?? null;
   if (cursorId) ui.memberCards.querySelector(`[data-id="${cursorId}"]`)?.classList.add('cursor');
@@ -105,10 +170,11 @@ async function act(fn, okMessage) {
 function requestRow(request) {
   const meta = el('div', { class: 'meta', 'data-created': request.createdAt });
   meta.textContent = `${ago(request.createdAt)} ago`;
-  return el('div', { class: 'request', 'data-id': request.id }, [
-    el('div', { class: `arrow ${request.direction}`, text: request.direction === 'more' ? '▲' : '▼' }),
+  const priority = request.priority === true;
+  return el('div', { class: `request${priority ? ' priority' : ''}`, 'data-id': request.id }, [
+    el('div', { class: `arrow ${priority ? 'urgent' : request.direction}`, text: priority ? '🚨' : request.direction === 'more' ? '▲' : '▼' }),
     el('div', {}, [
-      el('div', { class: 'label', text: `${glyph(request.channelIcon) ? `${glyph(request.channelIcon)} ` : ''}${request.channelName} ${request.direction === 'more' ? 'MORE' : 'LESS'}${request.count > 1 ? ` ×${request.count}` : ''}` }),
+      el('div', { class: 'label', text: `${glyph(request.channelIcon) ? `${glyph(request.channelIcon)} ` : ''}${request.channelName} ${priority ? 'CAN’T HEAR AT ALL' : request.direction === 'more' ? 'MORE' : 'LESS'}${request.count > 1 ? ` ×${request.count}` : ''}` }),
       meta,
     ]),
     el('button', {
@@ -163,8 +229,16 @@ function renderComposer() {
   if ([...ui.messageTo.options].some((o) => o.value === current)) ui.messageTo.value = current;
 }
 
+const byUrgency = (a, b) => (b.priority === true) - (a.priority === true) || a.createdAt - b.createdAt;
+
 function renderBoard() {
   const pending = state.requests.filter((r) => r.status === 'pending');
+  const priorities = pending.filter((r) => r.priority === true);
+  let fresh = false;
+  for (const r of priorities) if (!alertedPriority.has(r.id)) { alertedPriority.add(r.id); fresh = true; }
+  for (const id of alertedPriority) if (!pending.some((r) => r.id === id)) alertedPriority.delete(id);
+  if (fresh) priorityAlert();
+  document.title = `${priorities.length ? '🚨 ' : ''}${state.show.name} · Admin`;
   const inbox = state.messages.filter((m) => m.status === 'pending' && m.from === 'member');
   const outgoing = state.messages.filter((m) => m.status === 'pending' && m.from === 'admin');
   const open = pending.length + inbox.length;
@@ -174,7 +248,7 @@ function renderBoard() {
 
   ui.memberCards.replaceChildren(
     ...state.members.map((member) => {
-      const mine = pending.filter((r) => r.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt);
+      const mine = pending.filter((r) => r.memberId === member.id).sort(byUrgency);
       const myInbox = inbox.filter((m) => m.memberId === member.id).sort((a, b) => a.createdAt - b.createdAt);
       const myOutgoing = outgoing.filter((m) => m.memberId === member.id);
       const count = mine.length + myInbox.length;
@@ -191,7 +265,7 @@ function renderBoard() {
             : el('span', { class: `pill${count ? ' hot' : ''}`, text: String(count) }),
         ]),
       ]);
-      return el('div', { class: `card member-card${count ? ' hot' : ''}` }, [
+      return el('div', { class: `card member-card${count ? ' hot' : ''}${mine.some((r) => r.priority) ? ' priority' : ''}` }, [
         header,
         ...mine.map(requestRow),
         ...myInbox.map(messageRow),
@@ -212,7 +286,7 @@ function renderBoard() {
   ui.clearHistory.disabled = done.length === 0;
   const logLine = (item) => {
     if (item.text === undefined) {
-      return `${item.memberName} · ${glyph(item.channelIcon) ? `${glyph(item.channelIcon)} ` : ''}${item.channelName} ${item.direction === 'more' ? '▲' : '▼'}${item.count > 1 ? ` ×${item.count}` : ''}`;
+      return `${item.memberName} · ${glyph(item.channelIcon) ? `${glyph(item.channelIcon)} ` : ''}${item.channelName} ${item.priority ? '🚨 couldn’t hear' : item.direction === 'more' ? '▲' : '▼'}${item.count > 1 ? ` ×${item.count}` : ''}`;
     }
     return item.from === 'admin' ? `${item.memberName} ✓ read “${item.text}”` : `${item.memberName} · 💬 “${item.text}”`;
   };
@@ -362,7 +436,7 @@ function saveRoster() {
 function render() {
   if (!state) return;
   ui.title.textContent = state.show.name;
-  document.title = `${state.show.name} · Admin`;
+  if (!admin) document.title = `${state.show.name} · Admin`;
 
   ui.login.classList.toggle('hidden', admin);
   ui.tabBoard.classList.toggle('hidden', !admin);
@@ -388,6 +462,8 @@ function render() {
   if (view === 'setup') {
     ui.currentPasscode.textContent = passcode ?? '…';
     renderMidiPanel(ui.adminMidiPanel, midi, MIDI_LABELS);
+    renderKeysPanel(ui.adminKeysPanel, keys, KEY_LABELS);
+    ui.alertSound.checked = alertSound;
     if (!draft) {
       seedDraft();
       renderRoster();
@@ -509,6 +585,11 @@ ui.tabSetup.addEventListener('click', () => { view = 'setup'; draft = null; setu
 ui.tabBoard.addEventListener('click', closeIconMenu);
 
 ui.resolveAll.addEventListener('click', () => act(() => post('/api/admin/resolve', { all: true })));
+ui.alertSound.addEventListener('change', () => {
+  alertSound = ui.alertSound.checked;
+  try { localStorage.setItem('fixmymix.alertSound', alertSound ? '1' : '0'); } catch { /* private mode */ }
+  if (alertSound) beep();
+});
 ui.buzzAll.addEventListener('click', () => act(async () => {
   const { devices } = await post('/api/admin/buzz', {});
   toast(`Buzzed ${devices} device${devices === 1 ? '' : 's'}`);

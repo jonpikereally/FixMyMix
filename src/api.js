@@ -189,6 +189,7 @@ export function createApi({ store, auth, setups = new Setups(), cookieName = 'fm
         memberId,
         channelId: String(body.channelId ?? ''),
         direction: String(body.direction ?? ''),
+        priority: body.priority === true,
       });
       return ok({ request });
     },
