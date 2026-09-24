@@ -207,6 +207,24 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 .channel.pending { border-left-color: var(--pending); background: #221d10; }
 .channel.pending .state { color: var(--pending); font-weight: 600; }
 .channel.done { border-left-color: var(--done); background: #12301d; animation: pop 400ms ease; }
+.channel.priority { border-left-color: var(--danger); background: #331416; }
+.channel.priority .state, .box.priority .state { color: #ff8a8a; font-weight: 700; }
+.box.priority { border-color: var(--danger); }
+.box.priority .middle { background: #331416; }
+/* Holding +: the button fills from the bottom over the hold time */
+.tap, .half { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.tap.holding::after, .half.holding::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 0;
+  background: rgba(255, 138, 138, 0.45);
+  border-radius: inherit;
+  animation: hold-fill 3s linear forwards;
+  pointer-events: none;
+}
+@keyframes hold-fill { from { height: 0; } to { height: 100%; } }
+.tap.held, .half.held { background: var(--danger) !important; color: #fff !important; }
 .channel.done .state { color: var(--done); font-weight: 700; font-size: 1.05rem; }
 
 @keyframes pop {
@@ -244,6 +262,11 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
 }
 .request .arrow.more { background: #3e2414; color: var(--more); }
 .request .arrow.less { background: #14333d; color: var(--less); }
+.request .arrow.urgent { background: #4a1418; font-size: 1.3rem; }
+.request.priority { border: 1px solid var(--danger); background: #2a1113; animation: urgent 1.2s ease-in-out infinite; }
+.request.priority .label { color: #ff8a8a; }
+.member-card.priority { border-top-color: var(--danger); }
+@keyframes urgent { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 90, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 90, 90, 0.35); } }
 .request .label { font-size: 1.1rem; font-weight: 700; }
 .request .meta { font-size: 0.85rem; color: var(--muted); }
 .request .meta.old { color: var(--danger); font-weight: 600; }
