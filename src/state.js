@@ -106,6 +106,7 @@ function normalizeRequests(raw, members) {
       channelIcon: iconKey(entry?.channelIcon),
       direction: DIRECTIONS.has(entry?.direction) ? entry.direction : 'more',
       count: clamp(entry?.count, 1, MAX_COUNT, 1),
+      priority: entry?.priority === true,
       status,
       createdAt,
       updatedAt: clamp(entry?.updatedAt, 0, Number.MAX_SAFE_INTEGER, createdAt),
@@ -170,6 +171,19 @@ export class Store {
   subscribe(listener) {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  #eventListeners = new Set();
+
+  /** Called with { kind, ...item } each time a request or message finishes (done or cancelled). */
+  subscribeEvents(listener) {
+    this.#eventListeners.add(listener);
+    return () => this.#eventListeners.delete(listener);
+  }
+
+  #finished(kind, item, status = 'done') {
+    const event = { kind, ...item, status, resolvedAt: item.resolvedAt ?? Date.now() };
+    for (const listener of this.#eventListeners) listener(event);
   }
 
   snapshot() {
@@ -260,7 +274,7 @@ export class Store {
    * than stacking a second card on the engineer's board; the opposite direction
    * replaces it, because the performer has changed their mind.
    */
-  submitRequest({ memberId, channelId, direction }) {
+  submitRequest({ memberId, channelId, direction, priority = false }) {
     const member = this.#member(memberId);
     const channel = member.channels.find((c) => c.id === channelId);
     if (!channel) throw new StoreError('unknown_channel', 'That channel is no longer in your mix.');
@@ -279,6 +293,8 @@ export class Store {
         existing.direction = direction;
         existing.count = 1;
       }
+      // "Can't hear this at all" stays urgent until it is cleared, whatever follows.
+      if (priority === true) existing.priority = true;
       existing.memberName = member.name;
       existing.channelName = channel.name;
       existing.channelIcon = channel.icon;
@@ -294,6 +310,7 @@ export class Store {
         channelIcon: channel.icon,
         direction,
         count: 1,
+        priority: priority === true,
         status: 'pending',
         createdAt: now,
         updatedAt: now,
@@ -311,6 +328,7 @@ export class Store {
     );
     if (index === -1) throw new StoreError('unknown_request', 'That request has already been handled.');
     const [removed] = this.requests.splice(index, 1);
+    this.#finished('request', { ...removed, resolvedAt: Date.now() }, 'cancelled');
     this.#commit();
     return { ...removed };
   }
@@ -320,6 +338,7 @@ export class Store {
     if (!request) throw new StoreError('unknown_request', 'That request has already been handled.');
     request.status = 'done';
     request.resolvedAt = Date.now();
+    this.#finished('request', request);
     this.#prune();
     this.#commit();
     return { ...request };
@@ -341,12 +360,14 @@ export class Store {
       if (request.status !== 'pending' || !match(request)) continue;
       request.status = 'done';
       request.resolvedAt = now;
+      this.#finished('request', request);
       resolved.push({ ...request });
     }
     for (const message of this.messages) {
       if (message.status !== 'pending' || message.from !== 'member' || !match(message)) continue;
       message.status = 'done';
       message.resolvedAt = now;
+      this.#finished('message', message);
       resolved.push({ ...message });
     }
     if (resolved.length) {
@@ -408,6 +429,7 @@ export class Store {
     if (!message) throw new StoreError('unknown_message', 'That message has already been handled.');
     message.status = 'done';
     message.resolvedAt = Date.now();
+    this.#finished('message', message);
     this.#prune();
     this.#commit();
     return { ...message };
@@ -419,6 +441,7 @@ export class Store {
     if (!message) throw new StoreError('unknown_message', 'That message has already been handled.');
     message.status = 'done';
     message.resolvedAt = Date.now();
+    this.#finished('message', message);
     this.#prune();
     this.#commit();
     return { ...message };

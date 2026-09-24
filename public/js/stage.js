@@ -1,6 +1,7 @@
 import { watchState, post, toast, el, vibrate, ago, keepScreenAwake, wakeLockSupported } from './net.js';
 import { glyph } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
+import { createKeys, renderKeysPanel } from './keys.js';
 
 const withGlyph = (item) => (glyph(item.icon) ? `${glyph(item.icon)} ${item.name}` : item.name);
 
@@ -9,6 +10,9 @@ const SETTINGS_KEY = 'fixmymix.settings';
 const CONFIRM_MS = 8000;
 const DEFAULT_SETTINGS = { autoDismiss: true, layout: 'rows', keepAwake: true, swipe: true };
 // A flick: at least this far, mostly vertical, and quick — slower drags scroll.
+// Holding + this long means "I can't hear this at all": a priority request.
+const HOLD_MS = 3000;
+const HOLD_CANCEL_PX = 12;
 const SWIPE_MIN_PX = 40;
 // A flick is decided by time alone: a real one on a phone easily travels
 // 200 px or more, so distance must never disqualify it. Once a touch has
@@ -41,6 +45,7 @@ const ui = {
   composer: document.getElementById('composer'),
   messageText: document.getElementById('messageText'),
   midiPanel: document.getElementById('midiPanel'),
+  keysPanel: document.getElementById('keysPanel'),
 };
 
 let state = null;
@@ -81,6 +86,13 @@ const midi = createMidi({
   onAction: (action) => midiAction(action),
   onChange: () => render(),
 });
+const keys = createKeys({
+  actions: Object.keys(MIDI_LABELS),
+  storageKey: 'fixmymix.keys.stage',
+  onAction: (action) => midiAction(action),
+  onChange: () => render(),
+});
+const controllerActive = () => midi.active() || keys.active();
 
 function midiAction(action) {
   const member = currentMember();
@@ -263,12 +275,12 @@ function renderPicker() {
 
 const HINTS = {
   rows: {
-    auto: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. The row turns green when it\'s been done.',
-    sticky: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. The row turns green when it\'s been done; tap it to clear.',
+    auto: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. Hold + for 3 seconds if you can\'t hear it at all. The row turns green when it\'s been done.',
+    sticky: 'Tap − or + (or flick up or down) to ask for less or more. Tap again to push harder. Hold + for 3 seconds if you can\'t hear it at all. The row turns green when it\'s been done; tap it to clear.',
   },
   boxes: {
-    auto: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. The box turns green when it\'s been done.',
-    sticky: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. The box turns green when it\'s been done; tap it to clear.',
+    auto: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. Hold the top for 3 seconds if you can\'t hear it at all. The box turns green when it\'s been done.',
+    sticky: 'Tap the top of a box for more, the bottom for less, or flick up or down. Tap again to push harder. Hold the top for 3 seconds if you can\'t hear it at all. The box turns green when it\'s been done; tap it to clear.',
   },
 };
 
@@ -283,7 +295,7 @@ function channelView(member, channel, pending, confirmed) {
     }
   } else if (pending) {
     stateLine.append(
-      `Sent: ${pending.direction === 'more' ? 'more' : 'less'}${pending.count > 1 ? ` ×${pending.count}` : ''}`,
+      pending.priority ? 'Sent: CAN’T HEAR — the desk has been alerted' : `Sent: ${pending.direction === 'more' ? 'more' : 'less'}${pending.count > 1 ? ` ×${pending.count}` : ''}`,
       el('button', {
         type: 'button', class: 'cancel', text: 'cancel',
         onclick: (e) => { e.stopPropagation(); act(() => post('/api/requests/cancel', { memberId: member.id, requestId: pending.id })); },
@@ -292,31 +304,32 @@ function channelView(member, channel, pending, confirmed) {
   }
   const send = (direction) => (event) => {
     event.stopPropagation();
+    if (Date.now() < suppressClickUntil) return; // the tap that ended a 3 s hold
     sendRequest(member, channel, direction);
   };
   const badge = (direction) => (pending?.direction === direction ? el('span', { class: 'count', text: `×${pending.count}` }) : null);
   if (sendingRetry.has(channel.id) && !pending && !showDone) {
     stateLine.replaceChildren(el('span', { class: 'sending', text: 'Sending…' }));
   }
-  const isCursor = midi.active() && member.channels[cursor] === channel;
+  const isCursor = controllerActive() && member.channels[cursor] === channel;
   if (isCursor && armed) {
     stateLine.replaceChildren(el('span', { class: 'armed', text: `${armed === 'more' ? '▲ More' : '▼ Less'} armed — confirm to send` }));
   }
-  const stateClass = `${showDone ? ' done' : pending ? ' pending' : ''}${isCursor ? ' cursor' : ''}`;
+  const stateClass = `${showDone ? ' done' : pending ? ' pending' : ''}${pending?.priority ? ' priority' : ''}${isCursor ? ' cursor' : ''}`;
   const label = (direction) => `${direction === 'more' ? 'More' : 'Less'} ${channel.name}`;
   return { channel, showDone, stateLine, send, badge, stateClass, label };
 }
 
-function sendRequest(member, channel, direction) {
+function sendRequest(member, channel, direction, { priority = false } = {}) {
   confirmations.delete(channel.id);
-  act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction }, {
+  act(() => post('/api/requests', { memberId: member.id, channelId: channel.id, direction, priority }, {
     onRetry: () => { sendingRetry.add(channel.id); render(); },
   }).finally(() => { if (sendingRetry.delete(channel.id)) render(); }));
 }
 
 function renderRow(view) {
   const tap = (direction, text) =>
-    el('button', { type: 'button', class: `tap ${direction}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [text, view.badge(direction)]);
+    el('button', { type: 'button', class: `tap ${direction}`, 'aria-label': view.label(direction), 'data-hold': direction === 'more' ? 'more' : null, title: direction === 'more' ? 'Hold for 3 seconds if you can’t hear this at all' : null, onclick: view.send(direction) }, [text, view.badge(direction)]);
   const row = el('div', { class: `channel${view.stateClass}`, 'data-channel': view.channel.id }, [
     el('div', {}, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
     tap('less', '−'),
@@ -328,7 +341,7 @@ function renderRow(view) {
 
 function renderBox(view) {
   const half = (direction, arrow, position) =>
-    el('button', { type: 'button', class: `half ${position}${view.badge(direction) ? ' active' : ''}`, 'aria-label': view.label(direction), onclick: view.send(direction) }, [arrow, view.badge(direction)]);
+    el('button', { type: 'button', class: `half ${position}${view.badge(direction) ? ' active' : ''}`, 'aria-label': view.label(direction), 'data-hold': direction === 'more' ? 'more' : null, title: direction === 'more' ? 'Hold for 3 seconds if you can’t hear this at all' : null, onclick: view.send(direction) }, [arrow, view.badge(direction)]);
   const box = el('div', { class: `box${view.stateClass}`, 'data-channel': view.channel.id }, [
     half('more', '▲', 'up'),
     el('div', { class: 'middle' }, [el('div', { class: 'name', text: withGlyph(view.channel) }), view.stateLine]),
@@ -369,7 +382,10 @@ function render() {
   ui.title.textContent = state.show.name;
   document.title = `${state.show.name} · Stage`;
   ui.settings.classList.toggle('hidden', !settingsOpen);
-  if (settingsOpen) renderMidiPanel(ui.midiPanel, midi, MIDI_LABELS);
+  if (settingsOpen) {
+    renderMidiPanel(ui.midiPanel, midi, MIDI_LABELS);
+    renderKeysPanel(ui.keysPanel, keys, MIDI_LABELS);
+  }
   ui.autoDismiss.checked = settings.autoDismiss;
   ui.keepAwake.checked = settings.keepAwake;
   ui.swipe.checked = settings.swipe;
@@ -418,6 +434,52 @@ ui.swipe.addEventListener('change', () => {
   writeStored(SETTINGS_KEY, settings);
   render();
 });
+
+// Hold + (or the top of a box) for HOLD_MS: "I can't hear this at all". The
+// button fills up while held; at the end the phone buzzes and a priority
+// request goes to the desk. Letting go early, or moving the finger, is just a
+// normal tap (or the start of a swipe).
+let hold = null;
+let suppressClickUntil = 0;
+function cancelHold() {
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  hold.button.classList.remove('holding');
+  hold = null;
+}
+ui.channels.addEventListener('pointerdown', (event) => {
+  if (!event.isPrimary || event.button !== 0 || overlayOpen()) return;
+  const button = event.target.closest('[data-hold]');
+  const row = event.target.closest('[data-channel]');
+  if (!button || !row) return;
+  cancelHold();
+  const channelId = row.dataset.channel;
+  hold = {
+    button, x: event.clientX, y: event.clientY,
+    timer: setTimeout(() => {
+      const member = currentMember();
+      const channel = member?.channels.find((c) => c.id === channelId);
+      button.classList.remove('holding');
+      hold = null;
+      if (!channel) return;
+      suppressClickUntil = Date.now() + 800;
+      touchStart = null;
+      vibrate([80, 40, 80, 40, 400]);
+      button.classList.add('held');
+      setTimeout(() => button.classList.remove('held'), 600);
+      toast(`Sent: can’t hear ${channel.name} at all — the desk has been alerted`);
+      sendRequest(member, channel, 'more', { priority: true });
+    }, HOLD_MS),
+  };
+  button.classList.add('holding');
+});
+ui.channels.addEventListener('pointermove', (event) => {
+  if (!hold || !event.isPrimary) return;
+  if (Math.abs(event.clientX - hold.x) > HOLD_CANCEL_PX || Math.abs(event.clientY - hold.y) > HOLD_CANCEL_PX) cancelHold();
+});
+for (const type of ['pointerup', 'pointercancel']) ui.channels.addEventListener(type, cancelHold);
+// A long press must not open the copy/save menu on phones.
+ui.channels.addEventListener('contextmenu', (event) => { if (event.target.closest('[data-hold]')) event.preventDefault(); });
 
 // Swipe on a channel row or box: a quick flick up sends "more", down "less".
 // With swiping on, the channels carry touch-action: none, so the browser
