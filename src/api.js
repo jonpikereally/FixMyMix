@@ -3,6 +3,7 @@
 
 import { StoreError, MAX_MEMBERS, MAX_CHANNELS } from './state.js';
 import { Setups, packSetup, setupFilename } from './setups.js';
+import { History, summarize, toCsv, reportFilename } from './history.js';
 import { PASSCODE_PATTERN } from './auth.js';
 
 export const HEARTBEAT_MS = 15_000;
@@ -135,7 +136,7 @@ export function createHub(store, { heartbeatMs = HEARTBEAT_MS } = {}) {
  * @param {boolean} [options.secureCookies]  true when served over HTTPS
  * @param {(credentials: { passcode: string, secret: string }) => (void|Promise<void>)} [options.onCredentials]  persist a changed passcode
  */
-export function createApi({ store, auth, setups = new Setups(), cookieName = 'fmm_admin', secureCookies = false, onCredentials = () => {} }) {
+export function createApi({ store, auth, setups = new Setups(), history = new History(), cookieName = 'fmm_admin', secureCookies = false, onCredentials = () => {} }) {
   const hub = createHub(store);
   // Results of recent POSTs by client-supplied opId, so a retried tap whose
   // first attempt actually landed is answered again rather than applied twice.
@@ -307,9 +308,32 @@ export function createApi({ store, auth, setups = new Setups(), cookieName = 'fm
       return ok({ imported: { id: setup.id, name: setup.name, loaded: body.load === true }, setups: setups.summaries(), ...snapshot });
     },
 
+    // The board's short "recently done" list; with journal: true the whole show log too.
     'POST /admin/history/clear': async (req) => {
       await requireAdmin(req);
+      const body = await req.json();
+      if (body.journal === true) history.clear();
       return ok(store.clearHistory());
+    },
+
+    // --- The show log: everything that finished, for the History tab and the report.
+    'GET /admin/history': async (req) => {
+      await requireAdmin(req);
+      const entries = history.snapshot().sort((a, b) => a.createdAt - b.createdAt);
+      return ok({ show: store.show.name, entries, summary: summarize(entries) });
+    },
+
+    'GET /admin/history/export': async (req) => {
+      await requireAdmin(req);
+      const entries = history.snapshot();
+      return {
+        status: 200,
+        body: toCsv(entries, store.show.name),
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${reportFilename(store.show.name)}"`,
+        },
+      };
     },
 
     // Makes every connected stage device (or one member's) vibrate and flash:

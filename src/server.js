@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { Setups } from './setups.js';
+import { History } from './history.js';
 import { createApi, errorResponse, ApiError } from './api.js';
 import { createAuth, parseCookies, randomSecret, PASSCODE_PATTERN } from './auth.js';
 import { loadTls, createCertificate } from './tls.js';
@@ -54,7 +55,7 @@ export const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
 };
 
-const PAGES = { '/': 'index.html', '/stage': 'stage.html', '/admin': 'admin.html', '/join': 'join.html' };
+const PAGES = { '/': 'index.html', '/stage': 'stage.html', '/admin': 'admin.html', '/join': 'join.html', '/report': 'report.html' };
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -190,6 +191,7 @@ function createRequestListener({ api, log, info }) {
           json: () => readBody(req),
         });
         if (result.sse) return attachStream(api.hub, req, res, result.memberId);
+        if (result.body !== undefined) return send(res, result.status, result.body, result.headers);
         return sendJson(res, result);
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new ApiError(405, 'Method not allowed.');
@@ -358,11 +360,15 @@ export async function start({
   const persister = createPersister(store, path.join(dataDir, 'state.json'), log);
   const setups = new Setups(readJson(path.join(dataDir, 'setups.json'), [], log));
   const setupsPersister = createPersister(setups, path.join(dataDir, 'setups.json'), log);
+  const history = new History(readJson(path.join(dataDir, 'history.json'), [], log));
+  const historyPersister = createPersister(history, path.join(dataDir, 'history.json'), log);
+  store.subscribeEvents((event) => history.record(event));
   const auth = createAuth(config);
   const api = createApi({
     store,
     auth,
     setups,
+    history,
     onCredentials: (credentials) => {
       saveConfig(dataDir, { ...credentials, passcodeChosen: true });
       log('Admin passcode changed.');
@@ -417,11 +423,12 @@ export async function start({
       api.hub.close();
       persister.stop();
       setupsPersister.stop();
+      historyPersister.stop();
       await new Promise((resolve) => {
         server.front.close(resolve);
         server.destroyAll();
       });
-      await Promise.all([persister.flush(), setupsPersister.flush()]);
+      await Promise.all([persister.flush(), setupsPersister.flush(), historyPersister.flush()]);
     },
   };
 }

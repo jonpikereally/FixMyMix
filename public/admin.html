@@ -21,6 +21,7 @@
       <span id="pendingPill" class="pill">0</span>
       <button id="tabBoard" class="primary hidden" type="button">Board</button>
       <button id="tabSetup" class="ghost hidden" type="button">Setup</button>
+      <button id="tabHistory" class="ghost hidden" type="button">History</button>
       <button id="logout" class="ghost hidden" type="button">Lock</button>
     </div>
 
@@ -51,6 +52,20 @@
           <button id="clearHistory" class="ghost compact" type="button">Clear list</button>
         </div>
         <ul id="log" class="log"></ul>
+      </div>
+    </section>
+
+    <section id="history" class="hidden">
+      <div class="card">
+        <div class="row mb-md">
+          <h2 class="grow">Show log</h2>
+          <select id="historyMember" aria-label="Show performer"></select>
+          <a id="historyCsv" class="btn-link" href="/api/admin/history/export" download>Download CSV</a>
+          <a id="historyReport" class="btn-link" href="/report" target="_blank" rel="noopener">Printable report</a>
+          <button id="historyClear" class="ghost compact danger" type="button">Clear history</button>
+        </div>
+        <p id="historySummary" class="muted small"></p>
+        <div id="historyGroups"></div>
       </div>
     </section>
 

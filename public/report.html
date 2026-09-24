@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FixMyMix · Show report</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/report.css">
+</head>
+<body>
+  <header class="toolbar no-print">
+    <a href="/admin">← Back to the board</a>
+    <div class="grow"></div>
+    <a id="csv" href="/api/admin/history/export" download class="btn">Download CSV</a>
+    <button id="print" type="button" class="btn primary">Print / Save as PDF</button>
+  </header>
+  <main id="report">
+    <p id="status" class="muted">Loading the show log…</p>
+  </main>
+  <script type="module" src="/js/report.js"></script>
+</body>
+</html>
