@@ -11,6 +11,7 @@ const ui = {
   tabBoard: $('tabBoard'), tabSetup: $('tabSetup'), logout: $('logout'), offline: $('offline'),
   login: $('login'), loginForm: $('loginForm'), passcode: $('passcode'),
   board: $('board'), memberCards: $('memberCards'), log: $('log'), resolveAll: $('resolveAll'), clearHistory: $('clearHistory'), buzzAll: $('buzzAll'), boardHint: $('boardHint'),
+  tabHistory: $('tabHistory'), history: $('history'), historyMember: $('historyMember'), historySummary: $('historySummary'), historyGroups: $('historyGroups'), historyClear: $('historyClear'),
   setup: $('setup'), showName: $('showName'), saveShow: $('saveShow'),
   memberCount: $('memberCount'), channelCount: $('channelCount'), quickSetup: $('quickSetup'),
   roster: $('roster'), addMember: $('addMember'), saveRoster: $('saveRoster'), revertRoster: $('revertRoster'),
@@ -62,6 +63,8 @@ function priorityAlert() {
 }
 let draft = null; // editable copy of the roster while on the Setup tab
 let setups = null; // saved band setups, fetched when the Setup tab opens
+let historyData = null; // the show log, fetched when the History tab opens
+let historyRev = null; // state rev the log was fetched at, so a change refreshes it
 
 // MIDI walks a highlight through the pending items in board order.
 let cursorId = null;
@@ -441,13 +444,16 @@ function render() {
   ui.login.classList.toggle('hidden', admin);
   ui.tabBoard.classList.toggle('hidden', !admin);
   ui.tabSetup.classList.toggle('hidden', !admin);
+  ui.tabHistory.classList.toggle('hidden', !admin);
   ui.logout.classList.toggle('hidden', !admin);
   ui.qrLink.classList.toggle('hidden', !admin);
   ui.board.classList.toggle('hidden', !admin || view !== 'board');
   ui.setup.classList.toggle('hidden', !admin || view !== 'setup');
+  ui.history.classList.toggle('hidden', !admin || view !== 'history');
   ui.tabBoard.className = view === 'board' ? 'primary' : 'ghost';
   ui.tabSetup.className = view === 'setup' ? 'primary' : 'ghost';
-  ui.subtitle.textContent = admin ? (view === 'board' ? 'Mix board' : 'Setup') : 'Locked';
+  ui.tabHistory.className = view === 'history' ? 'primary' : 'ghost';
+  ui.subtitle.textContent = admin ? ({ board: 'Mix board', setup: 'Setup', history: 'Show log' })[view] : 'Locked';
   keepScreenAwake(admin); // the board must stay visible through the set
 
   ui.allowMessages.checked = Boolean(state.show.messaging);
@@ -471,7 +477,88 @@ function render() {
     if (!setups) refreshSetups();
     else renderSetups();
   }
+  if (view === 'history') {
+    if (!historyData || historyRev !== state.rev) refreshHistory();
+    else renderHistory();
+  }
 }
+
+// --- History: the show log, grouped by performer
+async function refreshHistory() {
+  historyRev = state?.rev ?? null;
+  try {
+    historyData = await get('/api/admin/history');
+  } catch (error) {
+    historyData = { entries: [], summary: null, error: error.message };
+  }
+  renderHistory();
+}
+
+const seconds = (ms) => (ms >= 60_000 ? `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s` : `${Math.round(ms / 1000)} s`);
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+function historyLine(e) {
+  const icon = e.kind === 'message' ? (e.from === 'admin' ? '📣' : '💬') : e.priority ? '🚨' : e.direction === 'more' ? '▲' : '▼';
+  let what;
+  if (e.kind === 'message') what = `${e.from === 'admin' ? 'Desk: ' : ''}“${e.text}”${e.buzz ? ' (buzz)' : ''}`;
+  else what = `${glyph(e.channelIcon) ? `${glyph(e.channelIcon)} ` : ''}${e.channelName} ${e.priority ? 'CAN’T HEAR' : e.direction === 'more' ? 'MORE' : 'LESS'}${e.count > 1 ? ` ×${e.count}` : ''}`;
+  const outcome = e.status === 'cancelled' ? 'cancelled by performer' : e.kind === 'message' && e.from === 'admin' ? `read after ${seconds(e.waitMs)}` : `cleared in ${seconds(e.waitMs)}`;
+  return el('li', { class: `hist ${e.kind}${e.priority ? ' priority' : ''}${e.status === 'cancelled' ? ' cancelled' : ''}` }, [
+    el('span', { class: 'hist-time', text: clock(e.createdAt) }),
+    el('span', { class: 'hist-icon', text: icon }),
+    el('span', { class: 'hist-what', text: what }),
+    el('span', { class: 'hist-outcome muted small', text: outcome }),
+  ]);
+}
+
+function renderHistory() {
+  const data = historyData;
+  if (!data) return;
+  if (data.error) {
+    ui.historySummary.textContent = data.error;
+    ui.historyGroups.replaceChildren();
+    return;
+  }
+  const entries = data.entries;
+  const s = data.summary;
+  const current = ui.historyMember.value || 'all';
+  const members = new Map();
+  for (const e of entries) members.set(e.memberId, e.memberName);
+  ui.historyMember.replaceChildren(
+    el('option', { value: 'all', text: 'Everyone' }),
+    ...[...members].map(([id, name]) => el('option', { value: id, text: name })),
+  );
+  ui.historyMember.value = members.has(current) ? current : 'all';
+  const filter = ui.historyMember.value;
+  ui.historyClear.disabled = entries.length === 0;
+  if (!entries.length) {
+    ui.historySummary.textContent = 'Nothing in the log yet. Every request and message that gets cleared during the show lands here.';
+    ui.historyGroups.replaceChildren();
+    return;
+  }
+  const span = s.firstAt && s.lastAt ? `${new Date(s.firstAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} – ${clock(s.lastAt)}` : '';
+  ui.historySummary.textContent = `${s.requests} request${s.requests === 1 ? '' : 's'} cleared${s.priority ? ` (${s.priority} can’t-hear)` : ''}, ${s.messages} message${s.messages === 1 ? '' : 's'}${s.cancelled ? `, ${s.cancelled} cancelled` : ''} · average wait ${seconds(s.averageWaitMs)}, slowest ${seconds(s.slowestWaitMs)} · ${span}`;
+  const groups = [...members].filter(([id]) => filter === 'all' || id === filter).map(([id, name]) => {
+    const mine = entries.filter((e) => e.memberId === id).sort((a, b) => b.createdAt - a.createdAt);
+    const stats = s.members.find((m) => m.memberId === id);
+    return el('div', { class: 'hist-group' }, [
+      el('h3', {}, [name, el('span', { class: 'muted small', text: ` · ${stats.requests} request${stats.requests === 1 ? '' : 's'}${stats.priority ? `, ${stats.priority} can’t-hear` : ''}, ${stats.messages} message${stats.messages === 1 ? '' : 's'}${stats.requests ? `, average wait ${seconds(stats.averageWaitMs)}` : ''}` })]),
+      el('ul', { class: 'hist-list' }, mine.map(historyLine)),
+    ]);
+  });
+  ui.historyGroups.replaceChildren(...groups);
+}
+
+ui.tabHistory.addEventListener('click', () => { view = 'history'; render(); });
+ui.historyMember.addEventListener('change', renderHistory);
+ui.historyClear.addEventListener('click', () => {
+  if (!confirm('Clear the whole show log? Download the CSV first if you want to keep it. The board is not affected.')) return;
+  act(async () => {
+    await post('/api/admin/history/clear', { journal: true });
+    historyData = null;
+    render();
+  }, 'Show log cleared');
+});
 
 // --- Band setups: save / load / export / delete / import
 async function refreshSetups() {

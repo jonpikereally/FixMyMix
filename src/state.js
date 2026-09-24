@@ -173,6 +173,19 @@ export class Store {
     return () => this.#listeners.delete(listener);
   }
 
+  #eventListeners = new Set();
+
+  /** Called with { kind, ...item } each time a request or message finishes (done or cancelled). */
+  subscribeEvents(listener) {
+    this.#eventListeners.add(listener);
+    return () => this.#eventListeners.delete(listener);
+  }
+
+  #finished(kind, item, status = 'done') {
+    const event = { kind, ...item, status, resolvedAt: item.resolvedAt ?? Date.now() };
+    for (const listener of this.#eventListeners) listener(event);
+  }
+
   snapshot() {
     return {
       rev: this.rev,
@@ -315,6 +328,7 @@ export class Store {
     );
     if (index === -1) throw new StoreError('unknown_request', 'That request has already been handled.');
     const [removed] = this.requests.splice(index, 1);
+    this.#finished('request', { ...removed, resolvedAt: Date.now() }, 'cancelled');
     this.#commit();
     return { ...removed };
   }
@@ -324,6 +338,7 @@ export class Store {
     if (!request) throw new StoreError('unknown_request', 'That request has already been handled.');
     request.status = 'done';
     request.resolvedAt = Date.now();
+    this.#finished('request', request);
     this.#prune();
     this.#commit();
     return { ...request };
@@ -345,12 +360,14 @@ export class Store {
       if (request.status !== 'pending' || !match(request)) continue;
       request.status = 'done';
       request.resolvedAt = now;
+      this.#finished('request', request);
       resolved.push({ ...request });
     }
     for (const message of this.messages) {
       if (message.status !== 'pending' || message.from !== 'member' || !match(message)) continue;
       message.status = 'done';
       message.resolvedAt = now;
+      this.#finished('message', message);
       resolved.push({ ...message });
     }
     if (resolved.length) {
@@ -412,6 +429,7 @@ export class Store {
     if (!message) throw new StoreError('unknown_message', 'That message has already been handled.');
     message.status = 'done';
     message.resolvedAt = Date.now();
+    this.#finished('message', message);
     this.#prune();
     this.#commit();
     return { ...message };
@@ -423,6 +441,7 @@ export class Store {
     if (!message) throw new StoreError('unknown_message', 'That message has already been handled.');
     message.status = 'done';
     message.resolvedAt = Date.now();
+    this.#finished('message', message);
     this.#prune();
     this.#commit();
     return { ...message };

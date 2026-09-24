@@ -509,6 +509,23 @@ body.has-composer { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
 a.btn-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line); text-decoration: none; color: inherit; }
 a.btn-link.compact { min-height: 36px; padding: 0 10px; font-size: 0.9rem; }
 
+/* Show log (History tab) */
+.hist-group { margin-top: 16px; }
+.hist-group h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.hist-list { list-style: none; margin: 0; padding: 0; }
+.hist { display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
+.hist-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; }
+.hist-icon { width: 1.4em; text-align: center; }
+.hist.request .hist-icon { color: var(--more); }
+.hist.priority .hist-icon, .hist.priority .hist-what { color: #ff8a8a; font-weight: 700; }
+.hist.cancelled .hist-what { text-decoration: line-through; color: var(--muted); }
+.hist-what { font-weight: 600; }
+#historyMember { min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: inherit; padding: 0 10px; }
+@media (max-width: 640px) {
+  .hist { grid-template-columns: auto auto 1fr; }
+  .hist-outcome { grid-column: 3; }
+}
+
 /* Saved band setups */
 .setups { margin-top: 12px; }
 .setup { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
