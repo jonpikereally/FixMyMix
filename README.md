@@ -134,6 +134,15 @@ What actually goes wrong at shows, and what the app and you do about it.
 4. **Phones:** *Add to Home Screen* once for a full-screen view.
 5. **Soundcheck ritual:** open the board, check every dot is green, press *Buzz everyone*, watch the phones light up.
 
+## Error codes
+
+Every error FixMyMix shows ends with a code such as **(Error FMM-P06)**: on the phones, on the board, on the QR and report pages, in the menu-bar menu and in the log. The letter says where it came from (C connection, P performer, A admin, S setups, U updates, D Mac app, X unexpected…).
+
+- **Hover any error** to see where to look it up; on a phone or iPad, tap the **Help** link next to it.
+- **The error list page** is built into the app at `/errors` (e.g. `http://192.168.1.20:8080/errors`), so it works on the show Wi-Fi with no internet. It explains every code and has a **Copy for AI assistant** button that copies the message, the explanation and the public link. It is also under **Error codes** in the FixMyMix menu, in the stage ⚙ settings and in the admin Setup tab.
+- **The public list** is [docs/ERRORS.md](https://github.com/jonpikereally/FixMyMix/blob/main/docs/ERRORS.md) in this public repo (plain text for AI assistants: <https://raw.githubusercontent.com/jonpikereally/FixMyMix/main/docs/ERRORS.md>). Each code has its own heading, e.g. `…/ERRORS.md#fmm-p06`.
+- API error bodies carry the same information as JSON: `error`, `code` (a slug), `errorCode` (the FMM- code), `help` and `helpUrl`.
+
 ## Development
 
 ```sh

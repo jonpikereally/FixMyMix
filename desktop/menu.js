@@ -1,5 +1,11 @@
 // The tray menu as a plain template, so it can be unit-tested without Electron.
 
+import { ERRORS_DOC_URL } from '../public/js/errors.js';
+
+// Hover text on every error line: where to look the code up. With the server
+// stopped the local page is gone, so this names the public list too.
+const ERROR_TOOLTIP = `Look up the error code with Error codes in this menu, or on the public list: ${ERRORS_DOC_URL}`;
+
 export function buildMenu(state, actions) {
   const items = [];
   const localUrl = `http://localhost${state.port === 80 ? '' : `:${state.port}`}`;
@@ -7,7 +13,7 @@ export function buildMenu(state, actions) {
   const name = state.version ? `FixMyMix ${state.version}` : 'FixMyMix';
   if (state.starting) items.push({ label: 'Starting FixMyMix…', enabled: false });
   else if (state.running) items.push({ label: `${name} is running`, enabled: false });
-  else if (state.error) items.push({ label: `FixMyMix stopped: ${state.error}`, enabled: false });
+  else if (state.error) items.push({ label: `FixMyMix stopped: ${state.error}`, toolTip: ERROR_TOOLTIP, enabled: false });
   else items.push({ label: 'FixMyMix is stopped', enabled: false });
 
   if (state.running) {
@@ -39,6 +45,8 @@ export function buildMenu(state, actions) {
   items.push({ label: 'Keep Mac awake while running', type: 'checkbox', checked: state.keepAwake !== false, click: () => actions.toggleKeepAwake() });
   items.push({ type: 'separator' });
   items.push(...updateItems(state.update ?? { status: 'idle' }, actions));
+  // The app's own list while the server runs (works offline); the public one otherwise.
+  items.push({ label: 'Error codes', toolTip: 'What each FixMyMix error code means and what to do', click: () => actions.open(state.running ? `${localUrl}/errors` : ERRORS_DOC_URL) });
   items.push({ label: 'Open log', click: () => actions.openLog() });
   items.push({ label: 'Quit FixMyMix', click: () => actions.quit() });
   return items;
@@ -59,7 +67,7 @@ export function updateItems(update, actions) {
       return [{ label: `Install ${update.version} and relaunch`, click: () => actions.installUpdate() }];
     case 'error':
       return [
-        { label: `Update failed: ${update.message ?? 'unknown error'}`, enabled: false },
+        { label: `Update failed: ${update.message ?? 'unknown error'}`, toolTip: ERROR_TOOLTIP, enabled: false },
         { label: 'Try again', click: () => actions.checkForUpdates() },
       ];
     case 'unsupported':

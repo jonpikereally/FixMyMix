@@ -37,9 +37,9 @@ export function packSetup({ id, name: label, savedAt, show, members }) {
 
 /** Reads a setup from user-supplied JSON (a file, or an older/foreign shape). */
 export function parseSetup(raw, { fallbackName = 'Imported setup' } = {}) {
-  if (!raw || typeof raw !== 'object') throw new StoreError('bad_setup', 'That is not a FixMyMix setup file.');
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.members)) throw new StoreError('bad_setup', 'That is not a FixMyMix setup file.');
   const members = normalizeMembers(raw.members);
-  if (!members.length) throw new StoreError('bad_setup', 'That file has no band members in it.');
+  if (!members.length) throw new StoreError('setup_no_members', 'That file has no band members in it.');
   return packSetup({
     id: typeof raw.id === 'string' && /^[\w-]{1,32}$/.test(raw.id) ? raw.id : newId(),
     name: name(raw.name, fallbackName),

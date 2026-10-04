@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
+import { ERRORS, codedError } from '../public/js/errors.js';
 
 export const REPO = 'jonpikereally/FixMyMix';
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
@@ -39,15 +40,15 @@ export function bundlePath(exePath) {
 
 /** Bundles inside a mounted disk image or a translocated copy cannot update themselves. */
 export function installable(bundle) {
-  if (!bundle) return { ok: false, reason: 'FixMyMix is running from the source folder, not an installed app.' };
-  if (bundle.startsWith('/Volumes/')) return { ok: false, reason: 'FixMyMix is running from the disk image. Drag it to Applications first.' };
-  if (bundle.includes('/AppTranslocation/')) return { ok: false, reason: 'macOS is running a temporary copy. Move FixMyMix to Applications and open it from there.' };
+  if (!bundle) return { ok: false, code: 'update_from_source', reason: ERRORS.update_from_source.message };
+  if (bundle.startsWith('/Volumes/')) return { ok: false, code: 'update_from_dmg', reason: ERRORS.update_from_dmg.message };
+  if (bundle.includes('/AppTranslocation/')) return { ok: false, code: 'update_translocated', reason: ERRORS.update_translocated.message };
   return { ok: true };
 }
 
 export async function fetchLatest({ fetchImpl = fetch, apiUrl = API_LATEST } = {}) {
   const res = await fetchImpl(apiUrl, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/vnd.github+json' } });
-  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  if (!res.ok) throw codedError('update_check_failed', `Could not check for updates: GitHub answered ${res.status}.`);
   const release = await res.json();
   const asset = pickAsset(release.assets);
   return {
@@ -61,7 +62,7 @@ export async function fetchLatest({ fetchImpl = fetch, apiUrl = API_LATEST } = {
 
 export async function download(url, dest, { fetchImpl = fetch, onProgress = () => {} } = {}) {
   const res = await fetchImpl(url, { headers: { 'User-Agent': USER_AGENT } });
-  if (!res.ok || !res.body) throw new Error(`Download failed (${res.status})`);
+  if (!res.ok || !res.body) throw codedError('update_download_failed', `The update download failed (HTTP ${res.status}).`);
   const total = Number(res.headers.get('content-length')) || 0;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const file = fs.createWriteStream(dest);
@@ -82,9 +83,9 @@ export function extractApp(zip, dir) {
     fs.mkdirSync(dir, { recursive: true });
     const [tool, args] = process.platform === 'darwin' ? ['ditto', ['-x', '-k', zip, dir]] : ['unzip', ['-q', zip, '-d', dir]];
     execFile(tool, args, (error) => {
-      if (error) return reject(new Error(`Could not unpack the update: ${error.message}`));
+      if (error) return reject(codedError('update_unpack_failed', `Could not unpack the update: ${error.message}`));
       const app = fs.readdirSync(dir).find((name) => name.endsWith('.app'));
-      if (!app) return reject(new Error('The update did not contain an app.'));
+      if (!app) return reject(codedError('update_no_app'));
       resolve(path.join(dir, app));
     });
   });
