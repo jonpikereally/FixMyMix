@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { Setups } from './setups.js';
 import { History } from './history.js';
-import { ERRORS, errorCode, withCode } from '../public/js/errors.js';
+import { ERRORS, errorCode, withCode, ERRORS_DOC_URL } from '../public/js/errors.js';
 import { createApi, errorResponse, ApiError } from './api.js';
 import { createAuth, parseCookies, randomSecret, PASSCODE_PATTERN } from './auth.js';
 import { loadTls, createCertificate } from './tls.js';
@@ -56,7 +56,7 @@ export const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
 };
 
-const PAGES = { '/': 'index.html', '/stage': 'stage.html', '/admin': 'admin.html', '/join': 'join.html', '/report': 'report.html' };
+const PAGES = { '/': 'index.html', '/stage': 'stage.html', '/admin': 'admin.html', '/join': 'join.html', '/report': 'report.html', '/errors': 'errors.html' };
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -201,7 +201,7 @@ function createRequestListener({ api, log, info }) {
       const response = errorResponse(error, log);
       // A person who typed a wrong address gets a readable line, not JSON.
       if (!url.pathname.startsWith('/api/')) {
-        return send(res, response.status, `FixMyMix: ${withCode(response.json.error, response.json.errorCode)}\n${response.json.help}\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return send(res, response.status, `FixMyMix: ${withCode(response.json.error, response.json.errorCode)}\n${response.json.help}\n\nEvery error code: /errors on this server, or ${ERRORS_DOC_URL}\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
       }
       sendJson(res, response);
     }

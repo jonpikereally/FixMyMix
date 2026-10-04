@@ -1,7 +1,7 @@
 // The printable show report: fetches the log (admin session required) and lays
 // it out for paper; the browser's Print dialog turns it into a PDF.
 
-import { el, codedError, describeError } from './net.js';
+import { el, codedError, renderError, clearError } from './net.js';
 import { glyph } from './icons.js';
 
 const main = document.getElementById('report');
@@ -37,15 +37,16 @@ function renderLogin() {
   ]);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    problem.textContent = '';
+    problem.replaceChildren();
+    clearError(problem);
     try {
       const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: input.value.trim() }) });
       if (r.ok) return load().catch(showProblem);
       const data = await r.json().catch(() => ({}));
       input.value = '';
-      problem.textContent = describeError(codedError(data.code || 'wrong_passcode', data.error, data.errorCode ? { errorCode: data.errorCode } : {}));
+      renderError(problem, codedError(data.code || 'wrong_passcode', data.error, data.errorCode ? { errorCode: data.errorCode } : {}));
     } catch {
-      problem.textContent = describeError(codedError('unreachable'));
+      renderError(problem, 'unreachable');
     }
   });
   main.replaceChildren(form);
@@ -105,7 +106,7 @@ function render({ show, entries, summary: s }) {
 }
 
 function showProblem(error) {
-  main.replaceChildren(el('p', { class: 'error-line', role: 'alert', text: describeError(error) }));
+  main.replaceChildren(renderError(el('p', { class: 'error-line', role: 'alert' }), error));
 }
 
 load().catch(showProblem);

@@ -16,7 +16,7 @@ test('running menu shows addresses, passcode and open/stop actions', () => {
   const items = buildMenu({ running: true, starting: false, error: null, urls: ['http://10.0.0.5:8080'], httpsUrls: [], passcode: '482913', port: 8080, devices: 3, keepAwake: true, loginItem: false, version: '0.3.0' }, actions);
   assert.deepEqual(labels(items), [
     'FixMyMix 0.3.0 is running', '3 devices connected', '---', 'Performers open (click to copy):', 'http://10.0.0.5:8080', 'Admin passcode: 482913',
-    '---', 'Open admin board', 'Open stage view', 'Show QR code for performers', 'Show QR code for AbleSet', '---', 'Stop server', 'Start at login', 'Keep Mac awake while running', '---', 'Check for updates…', 'Open log', 'Quit FixMyMix',
+    '---', 'Open admin board', 'Open stage view', 'Show QR code for performers', 'Show QR code for AbleSet', '---', 'Stop server', 'Start at login', 'Keep Mac awake while running', '---', 'Check for updates…', 'Error codes', 'Open log', 'Quit FixMyMix',
   ]);
   find(items, 'Check for updates…').click();
   assert.equal(find(items, 'Keep Mac awake while running').checked, true);
@@ -36,14 +36,18 @@ test('running menu shows addresses, passcode and open/stop actions', () => {
 test('stopped and errored menus offer to start', () => {
   const { calls, actions } = actionsSpy();
   const stopped = buildMenu({ running: false, starting: false, error: null, urls: [], passcode: null, port: 8080, loginItem: true }, actions);
-  assert.deepEqual(labels(stopped), ['FixMyMix is stopped', '---', 'Start server', 'Start at login', 'Keep Mac awake while running', '---', 'Check for updates…', 'Open log', 'Quit FixMyMix']);
+  assert.deepEqual(labels(stopped), ['FixMyMix is stopped', '---', 'Start server', 'Start at login', 'Keep Mac awake while running', '---', 'Check for updates…', 'Error codes', 'Open log', 'Quit FixMyMix']);
   assert.equal(find(stopped, 'Start at login').checked, true);
   find(stopped, 'Start server').click();
   assert.deepEqual(calls, [['start']]);
 
   const errored = buildMenu({ running: false, starting: false, error: 'port 8080 is already in use', urls: [], passcode: null, port: 8080, loginItem: false }, actions);
   assert.equal(errored[0].label, 'FixMyMix stopped: port 8080 is already in use');
+  assert.match(errored[0].toolTip, /Error codes in this menu.*github\.com\/jonpikereally\/FixMyMix\/blob\/main\/docs\/ERRORS\.md/);
   assert.ok(find(errored, 'Try again'));
+  // with the server down, Error codes opens the public list
+  find(errored, 'Error codes').click();
+  assert.deepEqual(calls.at(-1), ['open', 'https://github.com/jonpikereally/FixMyMix/blob/main/docs/ERRORS.md']);
 });
 
 test('one device reads singular', () => {

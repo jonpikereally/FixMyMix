@@ -314,6 +314,8 @@ label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 0.9r
   box-shadow: 0 8px 30px rgba(0,0,0,0.5);
 }
 .toast.error { border-color: var(--danger); }
+/* "Help" next to every error: opens /errors at that code (hover text says the same) */
+a.error-help { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; margin-left: 4px; white-space: nowrap; }
 
 @media (max-width: 420px) {
   :root { --tap: 58px; }
@@ -525,6 +527,17 @@ a.btn-link.compact { min-height: 36px; padding: 0 10px; font-size: 0.9rem; }
   .hist { grid-template-columns: auto auto 1fr; }
   .hist-outcome { grid-column: 3; }
 }
+
+/* Error list page (/errors) */
+.errors-page .err { scroll-margin-top: 96px; }
+.errors-page .err:target { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.errors-page .err-head { display: flex; gap: 10px; align-items: baseline; }
+.errors-page .err-code { font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.errors-page .err-message { font-weight: 600; margin: 6px 0 4px; }
+.errors-page .err-area { margin: 22px 0 10px; }
+.errors-page .public-link { word-break: break-all; color: var(--accent); }
+.errors-page .prompt { width: 100%; margin-top: 10px; font: inherit; font-size: 0.9rem; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.offscreen { position: fixed; left: -9999px; top: 0; opacity: 0; }
 
 /* Saved band setups */
 .setups { margin-top: 12px; }

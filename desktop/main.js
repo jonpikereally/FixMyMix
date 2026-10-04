@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
 import { buildMenu } from './menu.js';
-import { ERRORS, codedError, describeError, withCode } from '../public/js/errors.js';
+import { ERRORS, ERRORS_DOC_URL, helpUrl, codedError, describeError, withCode } from '../public/js/errors.js';
 import { compareVersions, fetchLatest, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -200,7 +200,7 @@ async function installUpdate() {
   const bundle = app.isPackaged ? bundlePath(app.getPath('exe')) : null;
   const check = installable(bundle);
   if (!check.ok) {
-    dialog.showMessageBox({ type: 'info', message: 'Cannot update this copy of FixMyMix', detail: `${withCode(check.reason, ERRORS[check.code].code)}\n\nOr download the installer from ${RELEASES_URL}.` });
+    dialog.showMessageBox({ type: 'info', message: 'Cannot update this copy of FixMyMix', detail: `${withCode(check.reason, ERRORS[check.code].code)}\n\nOr download the installer from ${RELEASES_URL}.\n\nWhat this code means: ${helpUrl(ERRORS[check.code].code)}` });
     return;
   }
   log(`Installing update ${update.version} over ${bundle} and relaunching.`);

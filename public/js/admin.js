@@ -1,4 +1,4 @@
-import { watchState, post, get, toast, showError, codedError, describeError, el, ago, keepScreenAwake, vibrate } from './net.js';
+import { watchState, post, get, toast, showError, renderError, clearError, codedError, el, ago, keepScreenAwake, vibrate } from './net.js';
 import { ICONS, glyph, guessIcon } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 import { createKeys, renderKeysPanel } from './keys.js';
@@ -491,7 +491,7 @@ async function refreshHistory() {
   try {
     historyData = await get('/api/admin/history');
   } catch (error) {
-    historyData = { entries: [], summary: null, error: describeError(error.errorCode ? error : codedError('history_load_failed')) };
+    historyData = { entries: [], summary: null, error: error.errorCode ? error : codedError('history_load_failed') };
   }
   renderHistory();
 }
@@ -516,8 +516,9 @@ function historyLine(e) {
 function renderHistory() {
   const data = historyData;
   if (!data) return;
+  clearError(ui.historySummary);
   if (data.error) {
-    ui.historySummary.textContent = data.error;
+    renderError(ui.historySummary, data.error);
     ui.historyGroups.replaceChildren();
     return;
   }

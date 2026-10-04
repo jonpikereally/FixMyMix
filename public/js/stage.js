@@ -1,5 +1,4 @@
-import { watchState, post, toast, showError, el, vibrate, ago, keepScreenAwake, wakeLockSupported } from './net.js';
-import { ERRORS, withCode } from './errors.js';
+import { watchState, post, toast, showError, renderError, el, vibrate, ago, keepScreenAwake, wakeLockSupported } from './net.js';
 import { glyph } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 import { createKeys, renderKeysPanel } from './keys.js';
@@ -535,7 +534,7 @@ ui.keepAwake.addEventListener('change', () => {
 });
 if (!wakeLockSupported()) {
   ui.keepAwake.disabled = true;
-  ui.keepAwakeHint.textContent = withCode(ERRORS.wake_lock_unsupported.message, ERRORS.wake_lock_unsupported.code);
+  renderError(ui.keepAwakeHint, 'wake_lock_unsupported');
 }
 keepScreenAwake(settings.keepAwake);
 

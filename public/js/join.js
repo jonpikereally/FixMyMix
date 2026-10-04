@@ -1,9 +1,5 @@
 import { qrSvg } from './qr.js';
-import { el } from './net.js';
-import { ERRORS, withCode } from './errors.js';
-
-/** A catalogue error as shown under the QR code: message plus its code. */
-const coded = (slug) => withCode(ERRORS[slug].message, ERRORS[slug].code);
+import { el, renderError, clearError } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -53,7 +49,7 @@ function ablesetHost() {
 /** The address the current tab should encode, or null with a reason. */
 function target() {
   if (app === 'fixmymix') {
-    if (!urls.length) return { error: coded('no_address') };
+    if (!urls.length) return { error: 'no_address' };
     if (!urls.includes(chosen)) chosen = urls.find((u) => u === location.origin) ?? urls[0];
     return { url: chosen };
   }
@@ -61,16 +57,16 @@ function target() {
     const host = ablesetHost();
     const portText = ui.ablesetPort.value.trim();
     const port = Number(portText);
-    if (!host) return { error: coded('ableset_host_missing') };
-    if (portText && !(port >= 1 && port <= 65535)) return { error: coded('bad_port') };
+    if (!host) return { error: 'ableset_host_missing' };
+    if (portText && !(port >= 1 && port <= 65535)) return { error: 'bad_port' };
     return { url: portText ? `http://${host}:${port}` : `http://${host}` };
   }
   const raw = ui.customUrl.value.trim();
-  if (!raw) return { error: coded('custom_url_missing') };
+  if (!raw) return { error: 'custom_url_missing' };
   try {
     return { url: new URL(raw.includes('://') ? raw : `http://${raw}`).toString().replace(/\/$/, '') };
   } catch {
-    return { error: coded('bad_url') };
+    return { error: 'bad_url' };
   }
 }
 
@@ -96,16 +92,17 @@ function render() {
   const { url, error } = target();
   if (!url) {
     ui.qr.replaceChildren();
-    ui.url.textContent = error;
+    renderError(ui.url, error);
     ui.others.replaceChildren();
     return;
   }
   try {
     ui.qr.replaceChildren(qrSvg(url));
+    clearError(ui.url);
     ui.url.textContent = url;
   } catch {
     ui.qr.replaceChildren();
-    ui.url.textContent = coded('qr_too_long');
+    renderError(ui.url, 'qr_too_long');
   }
   ui.others.replaceChildren(
     ...(app === 'fixmymix' && urls.length > 1
@@ -126,7 +123,7 @@ async function refresh() {
     }
   } catch {
     // Keep showing the last known address; with none yet, say why there is no QR.
-    if (!urls.length) ui.url.textContent = coded('unreachable');
+    if (!urls.length) renderError(ui.url, 'unreachable');
   }
   try {
     const state = await (await fetch('/api/state', { cache: 'no-store' })).json();
