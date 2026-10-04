@@ -1,4 +1,5 @@
-import { watchState, post, toast, el, vibrate, ago, keepScreenAwake, wakeLockSupported } from './net.js';
+import { watchState, post, toast, showError, el, vibrate, ago, keepScreenAwake, wakeLockSupported } from './net.js';
+import { ERRORS, withCode } from './errors.js';
 import { glyph } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 import { createKeys, renderKeysPanel } from './keys.js';
@@ -373,7 +374,7 @@ async function act(fn) {
   try {
     await fn();
   } catch (error) {
-    toast(error.message, { error: true });
+    showError(error);
   }
 }
 
@@ -534,7 +535,7 @@ ui.keepAwake.addEventListener('change', () => {
 });
 if (!wakeLockSupported()) {
   ui.keepAwake.disabled = true;
-  ui.keepAwakeHint.textContent = 'Not available in this browser — turn off Auto-Lock in the phone\'s settings for the show instead.';
+  ui.keepAwakeHint.textContent = withCode(ERRORS.wake_lock_unsupported.message, ERRORS.wake_lock_unsupported.code);
 }
 keepScreenAwake(settings.keepAwake);
 

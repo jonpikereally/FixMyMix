@@ -4,6 +4,7 @@
 import { StoreError, MAX_MEMBERS, MAX_CHANNELS } from './state.js';
 import { Setups, packSetup, setupFilename } from './setups.js';
 import { History, summarize, toCsv, reportFilename } from './history.js';
+import { ERRORS, errorCode } from '../public/js/errors.js';
 import { PASSCODE_PATTERN } from './auth.js';
 
 export const HEARTBEAT_MS = 15_000;
@@ -11,8 +12,9 @@ export const SESSION_SECONDS = 60 * 60 * 24 * 7;
 export const OP_TTL_MS = 60_000;
 const OP_CACHE_MAX = 2000;
 
+/** An HTTP error with a slug from public/js/errors.js; the response carries its FMM- code. */
 export class ApiError extends Error {
-  constructor(status, message, code = 'error') {
+  constructor(status, message, code = 'unknown') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -160,10 +162,10 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
     'GET /admin/session': async (req) => ok((await isAdmin(req)) ? adminSession() : { admin: false }),
 
     'POST /admin/login': async (req) => {
-      if (!loginThrottle(req.ip ?? 'unknown')) throw new ApiError(429, 'Too many attempts. Wait a minute.', 'throttled');
+      if (!loginThrottle(req.ip ?? 'unknown')) throw new ApiError(429, 'Too many attempts. Wait a minute.', 'login_throttled');
       const body = await req.json();
       const token = await auth.login(String(body.passcode ?? '').trim());
-      if (!token) throw new ApiError(401, 'Wrong passcode.', 'bad_passcode');
+      if (!token) throw new ApiError(401, 'Wrong passcode.', 'wrong_passcode');
       return ok(adminSession(), { 'Set-Cookie': `${cookieName}=${token}; ${cookieAttrs}; Max-Age=${SESSION_SECONDS}` });
     },
 
@@ -175,7 +177,7 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
       await requireAdmin(req);
       const body = await req.json();
       const next = String(body.passcode ?? '').trim();
-      if (!PASSCODE_PATTERN.test(next)) throw new ApiError(400, 'Passcode must be 4 to 12 digits.', 'bad_passcode');
+      if (!PASSCODE_PATTERN.test(next)) throw new ApiError(400, 'Passcode must be 4 to 12 digits.', 'bad_new_passcode');
       auth.setPasscode(next);
       await onCredentials({ passcode: auth.passcode, secret: auth.secret });
       const token = await auth.login(next);
@@ -185,7 +187,7 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
     'POST /requests': async (req) => {
       const body = await req.json();
       const memberId = String(body.memberId ?? '');
-      if (!requestThrottle(memberId)) throw new ApiError(429, 'Slow down — the request is already on the board.', 'throttled');
+      if (!requestThrottle(memberId)) throw new ApiError(429, 'Slow down — the request is already on the board.', 'request_throttled');
       const request = store.submitRequest({
         memberId,
         channelId: String(body.channelId ?? ''),
@@ -207,7 +209,7 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
     'POST /messages': async (req) => {
       const body = await req.json();
       const memberId = String(body.memberId ?? '');
-      if (!messageThrottle(memberId)) throw new ApiError(429, 'Slow down — give the desk a moment.', 'throttled');
+      if (!messageThrottle(memberId)) throw new ApiError(429, 'Slow down — give the desk a moment.', 'message_throttled');
       return ok({ message: store.sendMemberMessage({ memberId, text: String(body.text ?? '') }) });
     },
 
@@ -229,20 +231,20 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
       if (body.memberId) return ok({ resolved: store.resolveMember(String(body.memberId)) });
       if (body.requestId) return ok({ resolved: [store.resolveRequest(String(body.requestId))] });
       if (body.messageId) return ok({ resolved: [store.resolveMessage(String(body.messageId))] });
-      throw new ApiError(400, 'Nothing to resolve.');
+      throw new ApiError(400, 'Nothing to resolve.', 'nothing_to_resolve');
     },
 
     'POST /admin/roster': async (req) => {
       await requireAdmin(req);
       const body = await req.json();
       if (Array.isArray(body.members)) {
-        if (!body.members.length) throw new ApiError(400, 'Keep at least one performer in the roster.');
+        if (!body.members.length) throw new ApiError(400, 'Keep at least one performer in the roster.', 'empty_roster');
         return ok(store.setRoster(body.members));
       }
       const memberCount = Number(body.memberCount);
       const channelCount = Number(body.channelCount);
-      if (!(memberCount >= 1 && memberCount <= MAX_MEMBERS)) throw new ApiError(400, `Members must be 1–${MAX_MEMBERS}.`);
-      if (!(channelCount >= 1 && channelCount <= MAX_CHANNELS)) throw new ApiError(400, `Channels must be 1–${MAX_CHANNELS}.`);
+      if (!(memberCount >= 1 && memberCount <= MAX_MEMBERS)) throw new ApiError(400, `Members must be 1–${MAX_MEMBERS}.`, 'bad_member_count');
+      if (!(channelCount >= 1 && channelCount <= MAX_CHANNELS)) throw new ApiError(400, `Channels must be 1–${MAX_CHANNELS}.`, 'bad_channel_count');
       return ok(store.quickSetup(memberCount, channelCount));
     },
 
@@ -394,8 +396,14 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
 }
 
 /** Turns any error into the JSON the client expects; logs the unexpected ones. */
+// Every error body: the message, the slug (`code`), the FMM- reference
+// (`errorCode`) and a line of help, so a person or an LLM can act on it.
+function errorBody(message, slug) {
+  return { error: message, code: slug, errorCode: errorCode(slug), help: (ERRORS[slug] ?? ERRORS.unknown).help };
+}
+
 export function errorResponse(error, log = console.error) {
-  if (error instanceof ApiError) return { status: error.status, json: { error: error.message, code: error.code } };
-  log(error);
-  return { status: 500, json: { error: 'Something went wrong on the server.', code: 'server_error' } };
+  if (error instanceof ApiError) return { status: error.status, json: errorBody(error.message, error.code) };
+  log(`[${ERRORS.server_error.code}] ${error?.stack || error}`);
+  return { status: 500, json: errorBody(ERRORS.server_error.message, 'server_error') };
 }

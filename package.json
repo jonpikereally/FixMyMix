@@ -1,6 +1,6 @@
 {
   "name": "fixmymix",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "private": true,
   "description": "On-stage monitor mix request system. Runs on a local network, no internet required.",
   "type": "module",
@@ -13,9 +13,10 @@
     "dev": "node --watch src/server.js",
     "test": "node --test test/*.test.js",
     "app": "electron .",
-    "app:package": "electron-packager . FixMyMix --platform=darwin --out=\"${FIXMYMIX_APP_OUT:-desktop/dist}\" --overwrite --icon=desktop/icon --app-bundle-id=com.rehearsaltool.fixmymix --app-category-type=public.app-category.music --extend-info=desktop/Info.plist --prune=true --ignore='^/(test|data|desktop/dist|\\.github|\\.claude)($|/)'",
+    "app:package": "electron-packager . FixMyMix --platform=darwin --out=\"${FIXMYMIX_APP_OUT:-desktop/dist}\" --overwrite --icon=desktop/icon --app-bundle-id=com.rehearsaltool.fixmymix --app-category-type=public.app-category.music --extend-info=desktop/Info.plist --prune=true --ignore='^/(test|data|docs|scripts|desktop/dist|\\.github|\\.claude)($|/)'",
     "icons": "node desktop/scripts/icons.mjs",
-    "app:dmg": "bash desktop/scripts/release.sh"
+    "app:dmg": "bash desktop/scripts/release.sh",
+    "errors:doc": "node scripts/error-docs.mjs"
   },
   "license": "UNLICENSED",
   "devDependencies": {

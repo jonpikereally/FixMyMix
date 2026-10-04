@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './state.js';
 import { Setups } from './setups.js';
 import { History } from './history.js';
+import { ERRORS, errorCode, withCode } from '../public/js/errors.js';
 import { createApi, errorResponse, ApiError } from './api.js';
 import { createAuth, parseCookies, randomSecret, PASSCODE_PATTERN } from './auth.js';
 import { loadTls, createCertificate } from './tls.js';
@@ -64,7 +65,7 @@ function readJson(file, fallback, log) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (error) {
-    if (error.code !== 'ENOENT') log(`Ignoring unreadable ${path.basename(file)}: ${error.message}`);
+    if (error.code !== 'ENOENT') log(withCode(`Ignoring unreadable ${path.basename(file)}: ${error.message}`, errorCode('data_file_unreadable')));
     return fallback;
   }
 }
@@ -105,7 +106,7 @@ function createPersister(source, file, log) {
     writing = writing
       .then(() => fsp.writeFile(`${file}.tmp`, JSON.stringify(snapshot)))
       .then(() => fsp.rename(`${file}.tmp`, file))
-      .catch((error) => log(`Could not save ${path.basename(file)}: ${error.message}`));
+      .catch((error) => log(withCode(`Could not save ${path.basename(file)}: ${error.message}`, errorCode('save_failed'))));
     return writing;
   };
   const unsubscribe = source.subscribe(() => {
@@ -133,7 +134,7 @@ function readBody(req) {
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new ApiError(413, 'Request body too large.'));
+        reject(new ApiError(413, 'Request body too large.', 'too_large'));
         req.destroy();
         return;
       }
@@ -145,7 +146,7 @@ function readBody(req) {
         const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         resolve(parsed && typeof parsed === 'object' ? parsed : {});
       } catch {
-        reject(new ApiError(400, 'Body must be JSON.'));
+        reject(new ApiError(400, 'Body must be JSON.', 'bad_json'));
       }
     });
     req.on('error', reject);
@@ -155,12 +156,12 @@ function readBody(req) {
 async function serveStatic(res, urlPath) {
   const relative = PAGES[urlPath] ?? urlPath.replace(/^\/+/, '');
   const file = path.resolve(PUBLIC_DIR, relative);
-  if (!file.startsWith(PUBLIC_DIR + path.sep)) throw new ApiError(404, 'Not found.');
+  if (!file.startsWith(PUBLIC_DIR + path.sep)) throw new ApiError(404, 'Page not found.', 'page_not_found');
   let data;
   try {
     data = await fsp.readFile(file);
   } catch {
-    throw new ApiError(404, 'Not found.');
+    throw new ApiError(404, 'Page not found.', 'page_not_found');
   }
   send(res, 200, data, { 'Content-Type': CONTENT_TYPES[path.extname(file)] ?? 'application/octet-stream' });
 }
@@ -194,10 +195,15 @@ function createRequestListener({ api, log, info }) {
         if (result.body !== undefined) return send(res, result.status, result.body, result.headers);
         return sendJson(res, result);
       }
-      if (req.method !== 'GET' && req.method !== 'HEAD') throw new ApiError(405, 'Method not allowed.');
+      if (req.method !== 'GET' && req.method !== 'HEAD') throw new ApiError(405, 'Method not allowed.', 'method_not_allowed');
       await serveStatic(res, url.pathname);
     } catch (error) {
-      sendJson(res, errorResponse(error, log));
+      const response = errorResponse(error, log);
+      // A person who typed a wrong address gets a readable line, not JSON.
+      if (!url.pathname.startsWith('/api/')) {
+        return send(res, response.status, `FixMyMix: ${withCode(response.json.error, response.json.errorCode)}\n${response.json.help}\n`, { 'Content-Type': 'text/plain; charset=utf-8' });
+      }
+      sendJson(res, response);
     }
   };
 }
@@ -386,7 +392,7 @@ export async function start({
       tls = loadTls(dataDir);
       log('Created a self-signed certificate; https:// is on.');
     } catch (error) {
-      log(`No https (${error.message}).`);
+      log(withCode(`No https (${error.message}).`, errorCode('no_https')));
     }
   }
   const server = createDualServer(listener, tls);
@@ -434,7 +440,11 @@ export async function start({
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const running = await start();
+  const running = await start().catch((error) => {
+    const slug = error.code === 'EADDRINUSE' || error.code === 'EACCES' ? 'port_in_use' : 'server_start_failed';
+    console.error(`\n  FixMyMix could not start: ${withCode(error.message, errorCode(slug))}\n  ${ERRORS[slug].help}\n`);
+    process.exit(1);
+  });
   console.log('');
   console.log('  FixMyMix is running.');
   console.log('');

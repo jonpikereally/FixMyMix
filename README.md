@@ -134,6 +134,10 @@ What actually goes wrong at shows, and what the app and you do about it.
 4. **Phones:** *Add to Home Screen* once for a full-screen view.
 5. **Soundcheck ritual:** open the board, check every dot is green, press *Buzz everyone*, watch the phones light up.
 
+## Error codes
+
+Every error FixMyMix shows ends with a code such as **(Error FMM-P06)**: on the phones, on the board, on the QR and report pages, in the menu-bar menu and in the log. The letter says where it came from (C connection, P performer, A admin, S setups, U updates, D Mac app, X unexpected…). [docs/ERRORS.md](docs/ERRORS.md) lists every code with what it means and what to do; when asking an LLM for help, paste the whole message including the code. API error bodies carry the same thing as JSON: `error`, `code` (a slug), `errorCode` (the FMM- code) and `help`.
+
 ## Development
 
 ```sh
