@@ -25,6 +25,7 @@ tr.cancelled td.what { color: var(--muted); text-decoration: line-through; }
 .member-head { display: flex; gap: 12px; align-items: baseline; }
 .member-head .muted { font-size: 0.85rem; }
 .login { border: 1px solid var(--line); border-radius: 8px; padding: 16px; max-width: 420px; }
+.error-line { color: var(--danger); font-weight: 600; }
 .login input { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; width: 100%; margin: 8px 0 12px; }
 @media print {
   .no-print { display: none !important; }

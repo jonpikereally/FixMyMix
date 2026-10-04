@@ -2,7 +2,7 @@
 // process may be paused by an open menu-bar menu (macOS runs menu tracking in
 // a mode that stops the app's own code). Messages: { url, dest } in;
 // { type: 'progress', fraction, received, total } / { type: 'done' } /
-// { type: 'error', message } out.
+// { type: 'error', message, code } out (code is a slug from public/js/errors.js).
 process.parentPort.once('message', async ({ data }) => {
   try {
     const { download } = await import('./updater.js');
@@ -17,6 +17,6 @@ process.parentPort.once('message', async ({ data }) => {
     });
     process.parentPort.postMessage({ type: 'done' });
   } catch (error) {
-    process.parentPort.postMessage({ type: 'error', message: error?.message || String(error) });
+    process.parentPort.postMessage({ type: 'error', message: error?.message || String(error), code: error?.code ?? 'update_download_failed' });
   }
 });

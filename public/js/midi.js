@@ -5,6 +5,9 @@
 // foot switch sending 0/127 fires once per press), or any program change.
 
 import { el } from './net.js';
+import { ERRORS, withCode } from './errors.js';
+
+const coded = (slug, message = ERRORS[slug].message) => withCode(message, ERRORS[slug].code);
 
 const TYPES = { 0x9: 'note', 0xb: 'cc', 0xc: 'pc' };
 const TYPE_LABELS = { note: 'Note', cc: 'CC', pc: 'Program' };
@@ -131,11 +134,11 @@ export function renderMidiPanel(container, midi, labels) {
   const bindings = midi.bindings();
   let status;
   if (!state.supported) {
-    status = el('p', { class: 'muted small', text: 'This browser has no Web MIDI. Safari (and every browser on iPhone/iPad) cannot do MIDI; use Chrome, Edge or Firefox on a laptop or Android.' });
+    status = el('p', { class: 'muted small', text: coded('midi_unsupported') });
   } else if (!state.secure) {
-    status = el('p', { class: 'muted small', text: 'Browsers only allow MIDI on a secure page. On the computer running FixMyMix open http://localhost; on another laptop use the https:// address shown in the FixMyMix menu (accept the certificate once).' });
+    status = el('p', { class: 'muted small', text: coded('midi_insecure') });
   } else if (state.error) {
-    status = el('p', { class: 'small warn', text: `MIDI permission refused: ${state.error}` });
+    status = el('p', { class: 'small warn', text: coded('midi_denied', `MIDI permission refused: ${state.error}`) });
   } else if (!state.granted) {
     status = el('div', { class: 'row' }, [
       el('button', { type: 'button', class: 'ghost', text: 'Enable MIDI', onclick: () => midi.connect() }),

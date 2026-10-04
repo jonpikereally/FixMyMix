@@ -34,7 +34,8 @@ test('setups survive a round trip through JSON and skip unreadable entries', () 
 test('import validates the file, keeps names unique, and export names the file sensibly', () => {
   const setups = new Setups();
   assert.throws(() => setups.import('nope'), (e) => e instanceof StoreError && e.code === 'bad_setup');
-  assert.throws(() => setups.import({ members: [] }), (e) => e.code === 'bad_setup');
+  assert.throws(() => setups.import({ members: [] }), (e) => e.code === 'setup_no_members');
+  assert.throws(() => setups.import({ members: [{ junk: true }].filter(() => false) }), (e) => e.code === 'setup_no_members');
   assert.throws(() => parseSetup({ members: 'x' }), StoreError);
   const store = band();
   const first = setups.import({ app: 'FixMyMix', format: 1, name: 'Tour band', show: store.show, members: store.members });
