@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { start } from '../src/server.js';
 import { buildMenu } from './menu.js';
+import { ERRORS, ERRORS_DOC_URL, helpUrl, codedError, describeError, withCode } from '../public/js/errors.js';
 import { compareVersions, fetchLatest, extractApp, readBundleVersion, bundlePath, installable, launchInstaller, RELEASES_URL } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -121,8 +122,9 @@ async function checkForUpdates({ quiet = false } = {}) {
       setUpdate({ status: 'uptodate', version: app.getVersion(), latest });
     }
   } catch (e) {
-    log(`Update check failed: ${e.message}`);
-    setUpdate({ status: quiet ? 'idle' : 'error', message: e.message });
+    const shown = describeError(e.errorCode ? e : codedError('update_check_failed', `Could not check for updates: ${e.message}`));
+    log(`Update check failed: ${shown}`);
+    setUpdate({ status: quiet ? 'idle' : 'error', message: shown });
   }
 }
 
@@ -136,9 +138,9 @@ function downloadInWorker(url, dest, onProgress) {
     child.on('message', (message) => {
       if (message.type === 'progress') onProgress(message);
       else if (message.type === 'done') finish(resolve);
-      else if (message.type === 'error') finish(reject, new Error(message.message));
+      else if (message.type === 'error') finish(reject, codedError(ERRORS[message.code] ? message.code : 'update_download_failed', message.message));
     });
-    child.on('exit', (code) => finish(reject, new Error(`download helper exited (${code})`)));
+    child.on('exit', (code) => finish(reject, codedError('update_helper_failed', `The download helper stopped unexpectedly (exit ${code}).`)));
     child.postMessage({ url, dest });
   });
 }
@@ -179,16 +181,17 @@ async function downloadUpdate() {
     showTrayText('⬇ unpacking…');
     const fresh = await extractApp(zip, path.join(updatesDir(), 'unpacked'));
     const got = readBundleVersion(fresh);
-    if (got && compareVersions(got, latest.version) !== 0) throw new Error(`downloaded ${got}, expected ${latest.version}`);
+    if (got && compareVersions(got, latest.version) !== 0) throw codedError('update_version_mismatch', `Downloaded ${got}, expected ${latest.version}.`);
     fs.rmSync(zip, { force: true });
     log(`Update ${latest.version} downloaded and unpacked.`);
     showTrayText('');
     setUpdate({ status: 'ready', fresh, progress: 100 });
     notify(`FixMyMix ${latest.version} is ready`, 'Choose "Install and relaunch" from the FixMyMix menu.');
   } catch (e) {
-    log(`Update download failed: ${e.message}`);
+    const shown = describeError(e.errorCode ? e : codedError('update_download_failed', `The update download failed: ${e.message}`));
+    log(`Update download failed: ${shown}`);
     showTrayText('');
-    setUpdate({ status: 'error', message: e.message });
+    setUpdate({ status: 'error', message: shown });
   }
 }
 
@@ -197,7 +200,7 @@ async function installUpdate() {
   const bundle = app.isPackaged ? bundlePath(app.getPath('exe')) : null;
   const check = installable(bundle);
   if (!check.ok) {
-    dialog.showMessageBox({ type: 'info', message: 'Cannot update this copy of FixMyMix', detail: `${check.reason}\n\nOr download the installer from ${RELEASES_URL}.` });
+    dialog.showMessageBox({ type: 'info', message: 'Cannot update this copy of FixMyMix', detail: `${withCode(check.reason, ERRORS[check.code].code)}\n\nOr download the installer from ${RELEASES_URL}.\n\nWhat this code means: ${helpUrl(ERRORS[check.code].code)}` });
     return;
   }
   log(`Installing update ${update.version} over ${bundle} and relaunching.`);
@@ -245,7 +248,8 @@ async function startServer() {
     watchdogFailures = 0;
     log(`Server running on ${running.urls.join(', ') || `port ${running.port}`}`);
   } catch (e) {
-    error = e.code === 'EADDRINUSE' ? `port ${PORT} is already in use` : e.message;
+    const busy = e.code === 'EADDRINUSE' || e.code === 'EACCES';
+    error = withCode(busy ? `port ${PORT} is already in use` : e.message, ERRORS[busy ? 'port_in_use' : 'server_start_failed'].code);
     log(`Server failed to start: ${error}`);
   } finally {
     starting = false;

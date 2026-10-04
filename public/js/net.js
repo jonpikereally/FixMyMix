@@ -1,3 +1,7 @@
+import { ERRORS, codedError, describeError, errorCode, errorTitle, withCode } from './errors.js';
+
+export { codedError, errorCode };
+
 const STALE_MS = 40_000;
 const RETRY_DELAYS_MS = [300, 600, 1200, 2400, 3000, 3000, 3000, 3000];
 
@@ -123,18 +127,22 @@ export async function post(url, body = {}, { onRetry = () => {} } = {}) {
     try {
       res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
     } catch {
-      lastError = new Error('Cannot reach the FixMyMix server. Are you on the show Wi-Fi?');
+      lastError = codedError('unreachable');
       continue;
     }
     const data = await res.json().catch(() => ({}));
     if (res.ok) return data;
-    const error = new Error(data.error || `Request failed (${res.status})`);
-    error.code = data.code;
-    error.status = res.status;
+    const error = responseError(res, data);
     if (res.status < 500) throw error;
     lastError = error;
   }
   throw lastError;
+}
+
+/** An Error for a failed response, carrying the server's slug and FMM- code. */
+function responseError(res, data) {
+  const slug = data.code && ERRORS[data.code] ? data.code : res.status >= 500 ? 'server_error' : 'unknown';
+  return codedError(slug, data.error || ERRORS[slug].message, { status: res.status, errorCode: data.errorCode || errorCode(slug) });
 }
 
 /**
@@ -160,14 +168,11 @@ export async function get(url) {
   try {
     res = await fetch(url, { headers: { Accept: 'application/json' } });
   } catch {
-    throw new Error('Cannot reach the FixMyMix server. Are you on the show Wi-Fi?');
+    throw codedError('unreachable');
   }
   const data = await res.json().catch(() => ({}));
   if (res.ok) return data;
-  const error = new Error(data.error || `Request failed (${res.status})`);
-  error.code = data.code;
-  error.status = res.status;
-  throw error;
+  throw responseError(res, data);
 }
 
 export function keepScreenAwake(enabled) {
@@ -182,15 +187,80 @@ export function keepScreenAwake(enabled) {
 export const wakeLockSupported = () => typeof navigator !== 'undefined' && 'wakeLock' in navigator;
 
 let toastTimer = null;
-export function toast(message, { error = false, ms = 2500 } = {}) {
+/** A passing note to the person: "Saved", "Sent". Errors go through showError(). */
+export function toast(message, { ms = 2500 } = {}) {
+  showToast(message, null, ms);
+}
+
+/**
+ * Shows an error with its code: "Wrong passcode. (Error FMM-A02)". Takes an
+ * Error from post()/get()/codedError(), or a slug from errors.js.
+ */
+export function showError(errorOrSlug, { ms = 6000 } = {}) {
+  const error = typeof errorOrSlug === 'string' ? codedError(errorOrSlug) : errorOrSlug;
+  showToast(describeError(error), codeOf(error), ms);
+}
+
+/** The FMM- code of any error value. */
+function codeOf(error) {
+  return error?.errorCode ?? errorCode(error?.code);
+}
+
+/** A "Help" link to this code on the app's own error list page. */
+export function helpLink(code) {
+  const a = document.createElement('a');
+  a.href = `/errors#${code}`;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.className = 'error-help';
+  a.textContent = 'Help';
+  a.title = errorTitle(code);
+  return a;
+}
+
+/**
+ * Puts an error on screen in `node`: the message with its code, hover text
+ * pointing to the error list page, and a Help link for touch screens (which
+ * have no hover). Every error text in the pages goes through here or showError().
+ */
+export function renderError(node, errorOrSlug, message) {
+  const error = typeof errorOrSlug === 'string' ? codedError(errorOrSlug, message) : errorOrSlug;
+  const code = codeOf(error);
+  node.replaceChildren(describeError(error), ' ', helpLink(code));
+  node.title = errorTitle(code);
+  node.dataset.errorCode = code;
+  return node;
+}
+
+/** Clears what renderError() set, for an element that also shows normal text. */
+export function clearError(node) {
+  node.removeAttribute('title');
+  delete node.dataset.errorCode;
+}
+
+/** The text of an error with its code, for places that cannot hold a link (logs, menus). */
+export function errorText(errorOrSlug) {
+  return describeError(typeof errorOrSlug === 'string' ? codedError(errorOrSlug) : errorOrSlug);
+}
+
+export { withCode };
+
+function showToast(message, code, ms) {
   let el = document.querySelector('.toast');
   if (!el) {
     el = document.createElement('div');
     el.className = 'toast';
+    el.setAttribute('role', 'status');
     document.body.appendChild(el);
   }
   el.textContent = message;
-  el.classList.toggle('error', error);
+  if (code) {
+    el.append(' ', helpLink(code));
+    el.title = errorTitle(code);
+  } else {
+    el.removeAttribute('title');
+  }
+  el.classList.toggle('error', Boolean(code));
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), ms);
@@ -227,4 +297,19 @@ export function vibrate(pattern) {
   } catch {
     // Not supported; the visual confirmation is what matters.
   }
+}
+
+// Anything that escapes the page's own error handling still reaches the
+// person with a code, at most once every few seconds.
+let lastPageError = 0;
+function reportPageError(detail) {
+  const now = Date.now();
+  if (now - lastPageError < 5000) return;
+  lastPageError = now;
+  const text = String(detail?.message ?? detail ?? '').slice(0, 120);
+  showError(codedError('page_error', `${ERRORS.page_error.message}${text ? ` ${text}` : ''}`));
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => reportPageError(event.error ?? event.message));
+  window.addEventListener('unhandledrejection', (event) => reportPageError(event.reason));
 }

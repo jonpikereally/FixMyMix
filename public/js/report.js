@@ -1,7 +1,7 @@
 // The printable show report: fetches the log (admin session required) and lays
 // it out for paper; the browser's Print dialog turns it into a PDF.
 
-import { el } from './net.js';
+import { el, codedError, renderError, clearError } from './net.js';
 import { glyph } from './icons.js';
 
 const main = document.getElementById('report');
@@ -12,24 +12,42 @@ const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minut
 const day = (t) => new Date(t).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
 async function load() {
-  const res = await fetch('/api/admin/history', { headers: { Accept: 'application/json' } });
+  let res;
+  try {
+    res = await fetch('/api/admin/history', { headers: { Accept: 'application/json' } });
+  } catch {
+    throw codedError('unreachable');
+  }
   if (res.status === 401) return renderLogin();
-  if (!res.ok) throw new Error(`Could not load the log (${res.status}).`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw codedError('history_load_failed', `Could not load the show log (HTTP ${res.status}).`, data.errorCode ? { errorCode: data.errorCode } : {});
+  }
   render(await res.json());
 }
 
 function renderLogin() {
   const input = el('input', { type: 'password', inputmode: 'numeric', placeholder: 'Admin passcode', autocomplete: 'off' });
+  const problem = el('p', { class: 'error-line', role: 'alert' });
   const form = el('form', { class: 'login' }, [
     el('p', { text: 'Enter the admin passcode to see the report.' }),
     input,
     el('button', { type: 'submit', class: 'btn primary', text: 'Unlock' }),
+    problem,
   ]);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: input.value.trim() }) });
-    if (r.ok) load();
-    else input.value = '';
+    problem.replaceChildren();
+    clearError(problem);
+    try {
+      const r = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: input.value.trim() }) });
+      if (r.ok) return load().catch(showProblem);
+      const data = await r.json().catch(() => ({}));
+      input.value = '';
+      renderError(problem, codedError(data.code || 'wrong_passcode', data.error, data.errorCode ? { errorCode: data.errorCode } : {}));
+    } catch {
+      renderError(problem, 'unreachable');
+    }
   });
   main.replaceChildren(form);
   input.focus();
@@ -87,4 +105,8 @@ function render({ show, entries, summary: s }) {
   );
 }
 
-load().catch((error) => { main.replaceChildren(el('p', { class: 'muted', text: error.message })); });
+function showProblem(error) {
+  main.replaceChildren(renderError(el('p', { class: 'error-line', role: 'alert' }), error));
+}
+
+load().catch(showProblem);

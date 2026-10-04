@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FixMyMix · Error codes</title>
+  <meta name="description" content="Every FixMyMix error code, what it means and what to do.">
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <main class="wrap narrow errors-page">
+    <div class="topbar">
+      <div class="grow">
+        <h1>Error codes</h1>
+        <p class="muted small sub">What each FixMyMix error means and what to do</p>
+      </div>
+      <a class="ghost btn-link" href="/stage">Stage</a>
+      <a class="ghost btn-link" href="/admin">Board</a>
+    </div>
+
+    <section class="card">
+      <p>Every error in FixMyMix ends with a code such as <strong>FMM-P06</strong>. Find yours below.</p>
+      <p class="muted small">Asking an AI assistant such as Claude or ChatGPT? Press <strong>Copy for AI assistant</strong> on the code and paste it in. It includes the explanation and a link to the public list, which the assistant can open:</p>
+      <p class="small"><a id="publicLink" class="public-link" href="#" target="_blank" rel="noopener"></a></p>
+      <label for="search" class="mt">Find a code or word</label>
+      <input id="search" type="search" placeholder="e.g. FMM-P06 or passcode" autocomplete="off">
+    </section>
+
+    <div id="list"></div>
+  </main>
+  <script type="module" src="/js/errors-page.js"></script>
+</body>
+</html>

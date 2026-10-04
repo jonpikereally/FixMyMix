@@ -25,7 +25,7 @@
       <button id="logout" class="ghost hidden" type="button">Lock</button>
     </div>
 
-    <div id="offline" class="banner hidden">Lost connection to the server. Reconnecting…</div>
+    <div id="offline" class="banner hidden" data-error-code="FMM-C02" title="Error FMM-C02: check the error list page (/errors on this FixMyMix address) for what it means and what to do. Asking an AI assistant? Paste the message with its code and this link: https://github.com/jonpikereally/FixMyMix/blob/main/docs/ERRORS.md#fmm-c02">Lost connection to the server. Reconnecting… (Error FMM-C02) <a class="error-help" href="/errors#FMM-C02" target="_blank" rel="noopener">Help</a></div>
 
     <section id="login" class="card narrow hidden">
       <h2>Admin passcode</h2>
@@ -130,6 +130,11 @@
           <button id="importSetup" class="ghost" type="button">Import JSON…</button>
           <input id="importFile" type="file" accept="application/json,.json" class="hidden">
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Error codes</h2>
+        <p class="muted small">Every error ends with a code such as FMM-P06. <a href="/errors" target="_blank" rel="noopener">The error list</a> explains each one, with a copy button for asking an AI assistant. The same list is public on GitHub.</p>
       </div>
 
       <div class="card">

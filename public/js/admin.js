@@ -1,4 +1,4 @@
-import { watchState, post, get, toast, el, ago, keepScreenAwake, vibrate } from './net.js';
+import { watchState, post, get, toast, showError, renderError, clearError, codedError, el, ago, keepScreenAwake, vibrate } from './net.js';
 import { ICONS, glyph, guessIcon } from './icons.js';
 import { createMidi, renderMidiPanel } from './midi.js';
 import { createKeys, renderKeysPanel } from './keys.js';
@@ -49,8 +49,10 @@ function beep() {
       osc.start(t + at);
       osc.stop(t + at + 0.16);
     }
+    return true;
   } catch {
     // No audio here; the flash and the red row carry the alert.
+    return false;
   }
 }
 
@@ -105,7 +107,7 @@ function keyAction(action) {
   if (action === 'message') {
     if (view !== 'board') { view = 'board'; render(); }
     if (!ui.adminComposer.classList.contains('hidden')) ui.adminMessageText.focus();
-    else toast('Turn on Allow messages in Setup first', { error: true });
+    else showError(codedError('messaging_off', 'Turn on Allow messages in Setup first.'));
     return;
   }
   midiAction(action);
@@ -163,7 +165,7 @@ async function act(fn, okMessage) {
       admin = false;
       render();
     }
-    toast(error.message, { error: true });
+    showError(error);
   }
 }
 
@@ -395,7 +397,7 @@ function renderRoster() {
         el('button', {
           type: 'button', class: 'add-chip', text: '+ Channel',
           onclick: () => {
-            if (member.channels.length >= 16) return toast('Max 16 channels per member', { error: true });
+            if (member.channels.length >= 16) return showError('too_many_channels');
             member.channels.push({ id: null, name: '', icon: '' });
             renderRoster();
             ui.roster.querySelectorAll('.roster-member')[index]?.querySelector('.chip:last-of-type input')?.focus();
@@ -408,7 +410,7 @@ function renderRoster() {
           memberIcon,
           nameInput,
           el('button', { type: 'button', class: 'icon', text: '🗑', 'aria-label': `Remove ${member.name}`, onclick: () => {
-            if (draft.length === 1) return toast('Keep at least one member', { error: true });
+            if (draft.length === 1) return showError('empty_roster');
             if (!confirm(`Remove ${member.name || 'this member'}?`)) return;
             draft.splice(index, 1);
             renderRoster();
@@ -427,7 +429,7 @@ function saveRoster() {
     icon: m.icon || '',
     channels: m.channels.map((c, ci) => ({ id: c.id || undefined, name: c.name.trim() || `Ch ${ci + 1}`, icon: c.icon || '' })),
   }));
-  if (members.some((m) => !m.channels.length)) return toast('Every member needs at least one channel', { error: true });
+  if (members.some((m) => !m.channels.length)) return showError('member_needs_channel');
   act(async () => {
     applySnapshot(await post('/api/admin/roster', { members }));
   }, 'Roster saved');
@@ -489,7 +491,7 @@ async function refreshHistory() {
   try {
     historyData = await get('/api/admin/history');
   } catch (error) {
-    historyData = { entries: [], summary: null, error: error.message };
+    historyData = { entries: [], summary: null, error: error.errorCode ? error : codedError('history_load_failed') };
   }
   renderHistory();
 }
@@ -514,8 +516,9 @@ function historyLine(e) {
 function renderHistory() {
   const data = historyData;
   if (!data) return;
+  clearError(ui.historySummary);
   if (data.error) {
-    ui.historySummary.textContent = data.error;
+    renderError(ui.historySummary, data.error);
     ui.historyGroups.replaceChildren();
     return;
   }
@@ -567,7 +570,7 @@ async function refreshSetups() {
     const { setups: list } = await get('/api/admin/setups');
     setups = list;
   } catch (error) {
-    toast(error.message, { error: true });
+    showError(error);
   }
   renderSetups();
 }
@@ -616,7 +619,7 @@ function deleteSetup(setup) {
 
 ui.saveSetup.addEventListener('click', () => {
   const name = ui.setupName.value.trim();
-  if (!name) { ui.setupName.focus(); return toast('Give the setup a name first', { error: true }); }
+  if (!name) { ui.setupName.focus(); return showError('setup_name_missing'); }
   if (draft && JSON.stringify(draft) !== JSON.stringify(state.members.map((m) => ({ id: m.id, name: m.name, icon: m.icon, channels: m.channels.map((c) => ({ ...c })) }))) && !confirm('The roster below has unsaved edits, which will not be included. Save the setup anyway?')) return;
   act(async () => {
     const { saved, setups: list } = await post('/api/admin/setups', { name });
@@ -637,7 +640,7 @@ ui.importFile.addEventListener('change', () => {
     try {
       parsed = JSON.parse(await file.text());
     } catch {
-      throw new Error('That file is not valid JSON.');
+      throw codedError('setup_not_json');
     }
     const load = confirm(`Import “${file.name}” and load it now? OK replaces the current roster with it; Cancel just adds it to the saved list.`);
     const { imported, setups: list, ...snapshot } = await post('/api/admin/setups/import', { setup: parsed, filename: file.name, load });
@@ -675,7 +678,7 @@ ui.resolveAll.addEventListener('click', () => act(() => post('/api/admin/resolve
 ui.alertSound.addEventListener('change', () => {
   alertSound = ui.alertSound.checked;
   try { localStorage.setItem('fixmymix.alertSound', alertSound ? '1' : '0'); } catch { /* private mode */ }
-  if (alertSound) beep();
+  if (alertSound && !beep()) showError('audio_unavailable');
 });
 ui.buzzAll.addEventListener('click', () => act(async () => {
   const { devices } = await post('/api/admin/buzz', {});
@@ -685,7 +688,7 @@ ui.clearHistory.addEventListener('click', () => act(() => post('/api/admin/histo
 ui.saveShow.addEventListener('click', () => act(() => post('/api/admin/show', { name: ui.showName.value }), 'Show name saved'));
 ui.savePasscode.addEventListener('click', () => {
   const next = ui.newPasscode.value.trim();
-  if (!/^\d{4,12}$/.test(next)) return toast('Passcode must be 4 to 12 digits', { error: true });
+  if (!/^\d{4,12}$/.test(next)) return showError('bad_new_passcode');
   act(async () => {
     const session = await post('/api/admin/passcode', { passcode: next });
     passcode = session.passcode;
@@ -725,14 +728,14 @@ ui.quickSetup.addEventListener('click', () => {
 });
 
 ui.addMember.addEventListener('click', () => {
-  if (draft.length >= 24) return toast('Max 24 members', { error: true });
+  if (draft.length >= 24) return showError('too_many_members');
   draft.push({ id: null, name: '', icon: '', channels: [{ id: null, name: 'Vocal', icon: 'vocal' }] });
   renderRoster();
   ui.roster.lastElementChild?.querySelector('input')?.focus();
 });
 function addChannelToEveryone() {
   const name = ui.allChannelName.value.trim();
-  if (!name) return toast('Type a channel name first', { error: true });
+  if (!name) return showError('channel_name_missing');
   let added = 0;
   let full = 0;
   for (const member of draft) {
@@ -743,7 +746,7 @@ function addChannelToEveryone() {
   }
   renderRoster();
   ui.allChannelName.value = '';
-  if (!added) return toast(full ? 'Everyone already has that channel or is full' : 'Everyone already has that channel', { error: true });
+  if (!added) return showError(codedError('channel_exists_everyone', full ? 'Everyone already has that channel or is full.' : 'Everyone already has that channel.'));
   toast(`Added “${name}” to ${added} member${added === 1 ? '' : 's'}${full ? ` (${full} full)` : ''} — press Save roster`);
 }
 
