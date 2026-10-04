@@ -4,7 +4,7 @@
 import { StoreError, MAX_MEMBERS, MAX_CHANNELS } from './state.js';
 import { Setups, packSetup, setupFilename } from './setups.js';
 import { History, summarize, toCsv, reportFilename } from './history.js';
-import { ERRORS, errorCode } from '../public/js/errors.js';
+import { ERRORS, errorCode, helpUrl } from '../public/js/errors.js';
 import { PASSCODE_PATTERN } from './auth.js';
 
 export const HEARTBEAT_MS = 15_000;
@@ -399,7 +399,8 @@ export function createApi({ store, auth, setups = new Setups(), history = new Hi
 // Every error body: the message, the slug (`code`), the FMM- reference
 // (`errorCode`) and a line of help, so a person or an LLM can act on it.
 function errorBody(message, slug) {
-  return { error: message, code: slug, errorCode: errorCode(slug), help: (ERRORS[slug] ?? ERRORS.unknown).help };
+  const code = errorCode(slug);
+  return { error: message, code: slug, errorCode: code, help: (ERRORS[slug] ?? ERRORS.unknown).help, helpUrl: helpUrl(code) };
 }
 
 export function errorResponse(error, log = console.error) {

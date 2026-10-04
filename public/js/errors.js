@@ -12,6 +12,13 @@
 //
 // After adding or changing an entry, run `npm run errors:doc`.
 
+// The public copy of this list (docs/ERRORS.md in the public GitHub repo), so
+// an AI assistant with web access can read it. Each code has its own heading,
+// so `helpUrl()` links straight to it. The app also serves the list itself at
+// /errors, which works on the show Wi-Fi without internet.
+export const ERRORS_DOC_URL = 'https://github.com/jonpikereally/FixMyMix/blob/main/docs/ERRORS.md';
+export const ERRORS_RAW_URL = 'https://raw.githubusercontent.com/jonpikereally/FixMyMix/main/docs/ERRORS.md';
+
 export const ERRORS = {
   // --- C: connection
   offline_stage: { code: 'FMM-C01', area: 'Connection', message: 'No connection to the mix desk.', help: 'The phone has lost the FixMyMix server. Check it is on the show Wi-Fi and that the FixMyMix laptop is awake and running. The page reconnects by itself.' },
@@ -39,7 +46,7 @@ export const ERRORS = {
 
   // --- A: admin, passcode, roster
   unauthorized: { code: 'FMM-A01', area: 'Admin', message: 'Admin passcode required.', help: 'This device is not logged in to the board, or the passcode was changed elsewhere. Enter the admin passcode (shown in the FixMyMix menu).' },
-  wrong_passcode: { code: 'FMM-A02', area: 'Admin', message: 'Wrong passcode.', help: 'The admin passcode did not match. It is shown in the FixMyMix menu-bar menu; the default is 1234.' },
+  wrong_passcode: { code: 'FMM-A02', area: 'Admin', message: 'Wrong passcode.', help: 'The admin passcode did not match. The engineer can see it in the FixMyMix menu-bar menu on the laptop running FixMyMix.' },
   login_throttled: { code: 'FMM-A03', area: 'Admin', message: 'Too many attempts. Wait a minute.', help: 'Eight wrong passcodes in a minute from one device. Wait a minute, then use the passcode from the FixMyMix menu.' },
   bad_new_passcode: { code: 'FMM-A04', area: 'Admin', message: 'Passcode must be 4 to 12 digits.', help: 'A new admin passcode must be digits only, 4 to 12 of them.' },
   empty_roster: { code: 'FMM-A05', area: 'Admin', message: 'Keep at least one performer in the roster.', help: 'The roster cannot be empty. Add a member before removing the last one.' },
@@ -75,6 +82,7 @@ export const ERRORS = {
   midi_insecure: { code: 'FMM-B02', area: 'Browser', message: 'Browsers only allow MIDI on a secure page. On the computer running FixMyMix open http://localhost; on another laptop use the https:// address shown in the FixMyMix menu (accept the certificate once).', help: 'MIDI needs a secure context: localhost, or the https address.' },
   midi_denied: { code: 'FMM-B03', area: 'Browser', message: 'MIDI permission refused.', help: 'The browser blocked MIDI. Allow it in the site settings (the icon left of the address bar) and press Enable MIDI again.' },
   wake_lock_unsupported: { code: 'FMM-B04', area: 'Browser', message: 'Not available in this browser — turn off Auto-Lock in the phone\'s settings for the show instead.', help: 'This browser cannot keep the screen awake. On iPhone: Settings → Display & Brightness → Auto-Lock → Never.' },
+  copy_failed: { code: 'FMM-B06', area: 'Browser', message: 'This browser would not copy the text.', help: 'Select the text shown under the code and copy it by hand (long-press on a phone).' },
   audio_unavailable: { code: 'FMM-B05', area: 'Browser', message: 'This browser cannot play the alert sound.', help: 'Web Audio is missing or blocked. The flash and red row still carry the alert.' },
 
   // --- D: the Mac app and the server process
@@ -104,6 +112,33 @@ export const ERRORS = {
 /** The FMM-… code for a slug; unknown slugs get FMM-X99. */
 export function errorCode(slug) {
   return (ERRORS[slug] ?? ERRORS.unknown).code;
+}
+
+/** Public link to one code's entry: …/ERRORS.md#fmm-p06 (GitHub's heading anchor). */
+export function helpUrl(code) {
+  return `${ERRORS_DOC_URL}#${String(code).toLowerCase()}`;
+}
+
+/** The hover text every error carries: where to look the code up. */
+export function errorTitle(code) {
+  return `Error ${code}: check the error list page (/errors on this FixMyMix address) for what it means and what to do. Asking an AI assistant? Paste the message with its code and this link: ${helpUrl(code)}`;
+}
+
+/** The entry for an FMM- code, or null. */
+export function findByCode(code) {
+  const hit = Object.entries(ERRORS).find(([, e]) => e.code === code);
+  return hit ? { slug: hit[0], ...hit[1] } : null;
+}
+
+/** Text to paste into an AI assistant: what was seen, what it means, where the full list is. */
+export function llmPrompt(code, shownMessage) {
+  const entry = findByCode(code) ?? { ...ERRORS.unknown };
+  return [
+    `I'm using FixMyMix (a stage monitor-mix request app) and got this error: "${shownMessage ?? entry.message}" (Error ${entry.code}).`,
+    `FixMyMix's explanation of ${entry.code}: ${entry.help}`,
+    `The full list of FixMyMix error codes is at ${helpUrl(entry.code)} (plain text: ${ERRORS_RAW_URL}).`,
+    'What should I do?',
+  ].join('\n');
 }
 
 /** "message (Error FMM-P06)" — how every error is shown to a person. */

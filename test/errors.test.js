@@ -8,7 +8,8 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { ERRORS, errorCode, withCode, codedError, describeError } from '../public/js/errors.js';
+import { ERRORS, errorCode, withCode, codedError, describeError, errorTitle, helpUrl, llmPrompt, findByCode, ERRORS_DOC_URL } from '../public/js/errors.js';
+import { buildMenu, updateItems } from '../desktop/menu.js';
 import { ApiError, errorResponse } from '../src/api.js';
 import { renderErrorDocs, DOC_PATH } from '../scripts/error-docs.mjs';
 import { installable } from '../desktop/updater.js';
@@ -77,8 +78,15 @@ test('codes written into the HTML exist', () => {
 });
 
 test('docs/ERRORS.md is up to date (run npm run errors:doc)', () => {
-  assert.equal(fs.readFileSync(DOC_PATH, 'utf8'), renderErrorDocs());
-  for (const e of Object.values(ERRORS)) assert.ok(renderErrorDocs().includes(`| ${e.code} |`));
+  const doc = fs.readFileSync(DOC_PATH, 'utf8');
+  assert.equal(doc, renderErrorDocs());
+  // every code has its own heading, which is what helpUrl() links to
+  for (const e of Object.values(ERRORS)) {
+    assert.ok(doc.includes(`\n### ${e.code}\n`), `${e.code} heading`);
+    assert.ok(helpUrl(e.code).endsWith(`#${e.code.toLowerCase()}`));
+  }
+  assert.ok(doc.includes(ERRORS_DOC_URL), 'the doc names its own public address');
+  assert.doesNotMatch(doc, /1234/, 'the public list must not reveal the default admin passcode');
 });
 
 test('helpers format errors the same way everywhere', () => {
@@ -96,7 +104,7 @@ test('helpers format errors the same way everywhere', () => {
 
 test('every API error body carries errorCode and help; unexpected faults are FMM-X01', () => {
   const known = errorResponse(new ApiError(409, 'That performer is no longer in the roster.', 'unknown_member'), () => {});
-  assert.deepEqual(known.json, { error: 'That performer is no longer in the roster.', code: 'unknown_member', errorCode: 'FMM-P01', help: ERRORS.unknown_member.help });
+  assert.deepEqual(known.json, { error: 'That performer is no longer in the roster.', code: 'unknown_member', errorCode: 'FMM-P01', help: ERRORS.unknown_member.help, helpUrl: `${ERRORS_DOC_URL}#fmm-p01` });
   const logged = [];
   const crash = errorResponse(new TypeError('boom'), (line) => logged.push(line));
   assert.equal(crash.status, 500);
@@ -135,4 +143,55 @@ test('a real server answers API errors with codes and wrong pages with a readabl
   assert.equal(JSON.parse(badJson.body).errorCode, 'FMM-R01');
   const wrong = await get('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: '0000' }) });
   assert.deepEqual([wrong.status, JSON.parse(wrong.body).code, JSON.parse(wrong.body).errorCode], [401, 'wrong_passcode', 'FMM-A02']);
+});
+
+test('error text in the pages always carries hover text pointing to the error list', () => {
+  assert.match(errorTitle('FMM-P06'), /^Error FMM-P06: check the error list page \(\/errors/);
+  assert.ok(errorTitle('FMM-P06').includes(`${ERRORS_DOC_URL}#fmm-p06`));
+  // Pages may only put errors on screen through net.js (showError / renderError), which set the
+  // hover text and the Help link; formatting an error by hand would skip both.
+  for (const file of files('public/js', '.js')) {
+    if (/\/(errors|net)\.js$/.test(file)) continue;
+    const text = read(file);
+    assert.doesNotMatch(text, /\b(withCode|describeError)\(/, `${file}: show errors with renderError()/showError() so they get hover text`);
+  }
+  // Static error text in the HTML carries the same hover text and a Help link.
+  for (const file of files('public', '.html')) {
+    for (const m of read(file).matchAll(/<([a-z]+)[^>]*>[^<]*\(Error (FMM-[A-Z]\d{2})\)/g)) {
+      assert.ok(m[0].includes(`data-error-code="${m[2]}"`) && m[0].includes(`title="${errorTitle(m[2])}"`), `${file}: ${m[2]} text needs title="${'errorTitle'}(...)" hover text`);
+      assert.ok(read(file).includes(`href="/errors#${m[2]}"`), `${file}: ${m[2]} needs a Help link`);
+    }
+  }
+});
+
+test('menu-bar error lines carry hover text and the menu links to the list', () => {
+  const actions = new Proxy({}, { get: () => () => {} });
+  const stopped = buildMenu({ running: false, error: 'boom (Error FMM-D02)', urls: [], port: 8080 }, actions);
+  assert.match(stopped[0].toolTip, /Error codes/);
+  const failed = updateItems({ status: 'error', message: 'x (Error FMM-U01)' }, actions);
+  assert.match(failed[0].toolTip, /ERRORS\.md/);
+  assert.ok(buildMenu({ running: true, urls: [], port: 8080 }, actions).some((i) => i.label === 'Error codes'));
+});
+
+test('the AI-assistant prompt has the message, the explanation and the public link', () => {
+  const text = llmPrompt('FMM-A02', 'Wrong passcode.');
+  assert.match(text, /"Wrong passcode\." \(Error FMM-A02\)/);
+  assert.ok(text.includes(ERRORS.wrong_passcode.help));
+  assert.ok(text.includes(`${ERRORS_DOC_URL}#fmm-a02`));
+  assert.ok(text.includes('raw.githubusercontent.com/jonpikereally/FixMyMix/main/docs/ERRORS.md'));
+  assert.equal(findByCode('FMM-A02').slug, 'wrong_passcode');
+  assert.equal(findByCode('FMM-Z99'), null);
+});
+
+test('the error list page is served by the app', async (t) => {
+  const running = await start({ port: 0, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'fmm-err-')), autoCert: false, log: () => {} });
+  t.after(() => running.close());
+  const page = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port: running.port, path: '/errors' }, (res) => {
+    let body = '';
+    res.on('data', (c) => { body += c; });
+    res.on('end', () => resolve({ status: res.statusCode, body }));
+  }).on('error', reject));
+  assert.equal(page.status, 200);
+  assert.match(page.body, /<title>FixMyMix · Error codes<\/title>/);
+  assert.match(page.body, /\/js\/errors-page\.js/);
 });
